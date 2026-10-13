@@ -22,6 +22,8 @@ export default function Modal({ open, title, onClose, onConfirm, confirmLabel = 
           padding: 32,
           width: '100%',
           maxWidth: 480,
+          maxHeight: '90vh',
+          overflowY: 'auto',
           boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
         }}
         onClick={e => e.stopPropagation()}

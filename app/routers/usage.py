@@ -114,7 +114,8 @@ async def get_usage_per_flat(
     amt_result = await db.execute(
         select(FlatBill.flat_id, func.coalesce(func.sum(FlatBill.total_payable), 0))
         .join(MonthlyBill, MonthlyBill.id == FlatBill.monthly_bill_id)
-        .where(MonthlyBill.billing_month >= start, MonthlyBill.billing_month < end)
+        .where(MonthlyBill.billing_month >= start, MonthlyBill.billing_month < end,
+               MonthlyBill.status == "sent")
         .group_by(FlatBill.flat_id)
     )
     amounts = {fid: Decimal(str(amt)) for fid, amt in amt_result.all()}

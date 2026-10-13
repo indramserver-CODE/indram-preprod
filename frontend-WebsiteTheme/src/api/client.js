@@ -55,15 +55,31 @@ export async function api(method, path, body = null) {
 }
 
 /** Authenticated multipart upload */
-export async function apiUpload(path, formData) {
+export async function apiUpload(path, formData, method = 'POST') {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
+    method,
     headers: { Authorization: `Bearer ${getToken()}` },
     body: formData,
   });
   const data = await res.json();
   if (!res.ok) throw buildError(res.status, data);
   return data;
+}
+
+/** Authenticated file download (PDF / image) — saves it with the server's filename */
+export async function apiDownload(path, fallbackName = 'download.pdf') {
+  const res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw buildError(res.status, data);
+  }
+  const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = match ? match[1] : fallbackName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /** Unauthenticated request — used for login */

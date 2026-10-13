@@ -5,8 +5,126 @@ import Modal from '../../components/common/Modal';
 
 const DEFAULT_INDRAM_RATE = '1.50';
 
-const EMPTY_CREATE = { name: '', address: '', indram_rate: DEFAULT_INDRAM_RATE };
-const EMPTY_EDIT   = { name: '', address: '', indram_rate: '' };
+// Late fee: % of that bill, applied once grace days have passed after the due date
+const LATE_FEE_DEFAULTS = {
+  gstin: '',
+  resident_late_fee_pct: '5', resident_late_fee_grace_days: '0',
+  indram_late_fee_pct:   '5', indram_late_fee_grace_days:   '0',
+};
+
+const EMPTY_CREATE = { name: '', address: '', indram_rate: DEFAULT_INDRAM_RATE, ...LATE_FEE_DEFAULTS };
+const EMPTY_EDIT   = { name: '', address: '', indram_rate: '', ...LATE_FEE_DEFAULTS };
+
+const hint = { fontSize: 12, color: '#718096', marginTop: 4, display: 'block' };
+
+// Validates the GSTIN + late fee fields → [error, payload]
+function billingSettings(form) {
+  const gstin = form.gstin.trim().toUpperCase();
+  if (gstin && gstin.length !== 15) return ['GSTIN must be 15 characters', null];
+  const payload = { gstin: gstin || null };
+  for (const who of ['resident', 'indram']) {
+    const label = who === 'resident' ? 'Resident' : 'Indram';
+    const pct   = parseFloat(form[`${who}_late_fee_pct`]);
+    const days  = Number(form[`${who}_late_fee_grace_days`]);
+    if (isNaN(pct) || pct < 0 || pct > 100) return [`${label} late fee must be between 0 and 100%`, null];
+    if (!Number.isInteger(days) || days < 0) return [`${label} grace days must be a whole number, 0 or more`, null];
+    payload[`${who}_late_fee_pct`]        = pct;
+    payload[`${who}_late_fee_grace_days`] = days;
+  }
+  return [null, payload];
+}
+
+function IndramRateField({ value, onChange }) {
+  return (
+    <div className="form-group">
+      <label>
+        INDRAM Rate (₹ / kWh)
+        <span style={{ fontWeight: 400, color: '#718096', marginLeft: 6 }}>
+          (default ₹{DEFAULT_INDRAM_RATE} if left blank)
+        </span>
+      </label>
+      <div style={{ position: 'relative' }}>
+        <span style={{
+          position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+          color: '#4a5568', fontWeight: 600, fontSize: 14, pointerEvents: 'none',
+        }}>
+          ₹
+        </span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          placeholder={DEFAULT_INDRAM_RATE}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{ paddingLeft: 28 }}
+        />
+      </div>
+      <small style={hint}>
+        This is the platform service charge added to every flat's electricity bill per kWh consumed.
+        Applied uniformly across all meters in this society.
+      </small>
+    </div>
+  );
+}
+
+function LateFeeRow({ title, help, form, prefix, onChange }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, fontSize: 14, color: '#1a202c', marginBottom: 6 }}>{title}</div>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+          <label>Late fee (%)</label>
+          <input
+            type="number" step="0.01" min="0" max="100"
+            value={form[`${prefix}_late_fee_pct`]}
+            onChange={e => onChange({ ...form, [`${prefix}_late_fee_pct`]: e.target.value })}
+          />
+        </div>
+        <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+          <label>Grace days after due date</label>
+          <input
+            type="number" step="1" min="0"
+            value={form[`${prefix}_late_fee_grace_days`]}
+            onChange={e => onChange({ ...form, [`${prefix}_late_fee_grace_days`]: e.target.value })}
+          />
+        </div>
+      </div>
+      <small style={hint}>{help}</small>
+    </div>
+  );
+}
+
+function BillingSettingsFields({ form, onChange }) {
+  return (
+    <>
+      <div className="form-group">
+        <label>Society GSTIN <span style={{ fontWeight: 400, color: '#718096' }}>(optional)</span></label>
+        <input
+          placeholder="27ABCDE1234F1Z5"
+          maxLength={15}
+          value={form.gstin}
+          onChange={e => onChange({ ...form, gstin: e.target.value })}
+        />
+        <small style={hint}>Printed on Indram's GST tax invoice to this society.</small>
+      </div>
+      <LateFeeRow
+        title="Late fee — society to residents"
+        help="Charged on a flat's bill when the society admin marks it Unpaid. Unpaid can be marked only after the due date + grace days."
+        form={form} prefix="resident" onChange={onChange}
+      />
+      <LateFeeRow
+        title="Late fee — Indram to society"
+        help="Charged on Indram's invoice (plus 18% GST) when you raise the late flag, allowed only after the due date + grace days."
+        form={form} prefix="indram" onChange={onChange}
+      />
+    </>
+  );
+}
+
+function lateFeeSummary(pct, days) {
+  return `${parseFloat(pct)}% after ${days} day${days === 1 ? '' : 's'}`;
+}
 
 export default function Societies() {
   const { showToast } = useToast();
@@ -50,12 +168,15 @@ export default function Societies() {
     if (rate && (isNaN(parseFloat(rate)) || parseFloat(rate) < 0)) {
       showToast('INDRAM rate must be a positive number', 'error'); return;
     }
+    const [settingsError, settings] = billingSettings(createForm);
+    if (settingsError) { showToast(settingsError, 'error'); return; }
 
     try {
       await api('POST', '/api/societies', {
         name,
         address:     createForm.address.trim() || null,
         indram_rate: rate ? parseFloat(rate) : null,
+        ...settings,
       });
       setCreateOpen(false);
       showToast('Society created');
@@ -74,6 +195,11 @@ export default function Societies() {
       indram_rate: s.indram_rate !== null && s.indram_rate !== undefined
                      ? String(parseFloat(s.indram_rate))
                      : '',
+      gstin:                        s.gstin || '',
+      resident_late_fee_pct:        String(parseFloat(s.resident_late_fee_pct ?? 5)),
+      resident_late_fee_grace_days: String(s.resident_late_fee_grace_days ?? 0),
+      indram_late_fee_pct:          String(parseFloat(s.indram_late_fee_pct ?? 5)),
+      indram_late_fee_grace_days:   String(s.indram_late_fee_grace_days ?? 0),
     });
     setEditTarget(s);
   }
@@ -86,12 +212,15 @@ export default function Societies() {
     if (rate && (isNaN(parseFloat(rate)) || parseFloat(rate) < 0)) {
       showToast('INDRAM rate must be a positive number', 'error'); return;
     }
+    const [settingsError, settings] = billingSettings(editForm);
+    if (settingsError) { showToast(settingsError, 'error'); return; }
 
     try {
       await api('PUT', `/api/societies/${editTarget.id}`, {
         name,
         address:     editForm.address.trim() || null,
         indram_rate: rate ? parseFloat(rate) : null,
+        ...settings,
       });
       setEditTarget(null);
       showToast('Society updated');
@@ -114,42 +243,6 @@ export default function Societies() {
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────
-
-  function IndramRateField({ value, onChange }) {
-    return (
-      <div className="form-group">
-        <label>
-          INDRAM Rate (₹ / kWh)
-          <span style={{ fontWeight: 400, color: '#718096', marginLeft: 6 }}>
-            (default ₹{DEFAULT_INDRAM_RATE} if left blank)
-          </span>
-        </label>
-        <div style={{ position: 'relative' }}>
-          <span style={{
-            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
-            color: '#4a5568', fontWeight: 600, fontSize: 14, pointerEvents: 'none',
-          }}>
-            ₹
-          </span>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            placeholder={DEFAULT_INDRAM_RATE}
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            style={{ paddingLeft: 28 }}
-          />
-        </div>
-        <small style={{ fontSize: 12, color: '#718096', marginTop: 4, display: 'block' }}>
-          This is the platform service charge added to every flat's electricity bill per kWh consumed.
-          Applied uniformly across all meters in this society.
-        </small>
-      </div>
-    );
-  }
-
   // ── Render ────────────────────────────────────────────────────────────
 
   return (
@@ -158,7 +251,7 @@ export default function Societies() {
         <div>
           <div className="page-title">Societies</div>
           <div style={{ fontSize: 13, color: '#4a5568', marginTop: 2 }}>
-            Manage societies and their INDRAM billing rates
+            Manage societies, their INDRAM billing rates and late fees
           </div>
         </div>
         <button className="btn btn-primary" onClick={openCreate}>
@@ -174,6 +267,7 @@ export default function Societies() {
               <th>Name</th>
               <th>Address</th>
               <th>INDRAM Rate</th>
+              <th>Late fee</th>
               <th>Created</th>
               <th>Actions</th>
             </tr>
@@ -181,11 +275,11 @@ export default function Societies() {
           <tbody>
             {loading ? (
               <tr className="empty-row">
-                <td colSpan={6}>Loading…</td>
+                <td colSpan={7}>Loading…</td>
               </tr>
             ) : societies.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={6}>No societies yet</td>
+                <td colSpan={7}>No societies yet</td>
               </tr>
             ) : (
               societies.map(s => (
@@ -214,6 +308,10 @@ export default function Societies() {
                         default ₹{DEFAULT_INDRAM_RATE}
                       </span>
                     )}
+                  </td>
+                  <td style={{ fontSize: 12, color: '#4a5568', lineHeight: 1.6 }}>
+                    <div>Residents: {lateFeeSummary(s.resident_late_fee_pct, s.resident_late_fee_grace_days)}</div>
+                    <div>Indram: {lateFeeSummary(s.indram_late_fee_pct, s.indram_late_fee_grace_days)}</div>
                   </td>
                   <td style={{ fontSize: 13, color: '#4a5568' }}>
                     {new Date(s.created_at).toLocaleDateString()}
@@ -260,6 +358,7 @@ export default function Societies() {
           value={createForm.indram_rate}
           onChange={v => setCreateForm({ ...createForm, indram_rate: v })}
         />
+        <BillingSettingsFields form={createForm} onChange={setCreateForm} />
       </Modal>
 
       {/* Edit modal */}
@@ -287,6 +386,7 @@ export default function Societies() {
           value={editForm.indram_rate}
           onChange={v => setEditForm({ ...editForm, indram_rate: v })}
         />
+        <BillingSettingsFields form={editForm} onChange={setEditForm} />
       </Modal>
 
       {/* Delete modal */}

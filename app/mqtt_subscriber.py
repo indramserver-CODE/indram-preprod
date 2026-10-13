@@ -353,17 +353,59 @@ async def handle_charging_ended(conn: asyncpg.Connection, payload: dict, status:
 
 # ── Society-wide (DEACTIVATE_ALL / ACTIVATE_ALL) queue ────────────────────
 # One pending_commands row per charger, status 'pending' until the charger
-# confirms. Chargers that missed the broadcast get the per-charger command
-# re-sent on their next heartbeat.
+# confirms. When a charger that missed the broadcast shows up again (online /
+# status / heartbeat) the society command is re-broadcast. It's idempotent, so
+# chargers that already applied it just ack again, and the lock reason stays
+# 'society' — no per-charger 'billing' lock for ACTIVATE_ALL to trip over.
 
 BULK_CMDS        = ("DEACTIVATE_ALL", "ACTIVATE_ALL")
-BULK_FOR_SINGLE  = {"DEACTIVATE": "DEACTIVATE_ALL", "ACTIVE": "ACTIVATE_ALL"}   # ack of retry → bulk row
-SINGLE_FOR_BULK  = {"DEACTIVATE_ALL": "DEACTIVATE", "ACTIVATE_ALL": "ACTIVE"}   # bulk row → retry cmd
-RETRY_MIN_GAP_S  = 60    # don't re-send more often than this per charger
+BULK_FOR_SINGLE  = {"DEACTIVATE": "DEACTIVATE_ALL", "ACTIVE": "ACTIVATE_ALL"}   # ack of ACTIVE follow-up → bulk row
+RETRY_MIN_GAP_S  = 60    # don't re-broadcast more often than this per society + command
+
+
+async def _rebroadcast_bulk(conn: asyncpg.Connection, charger_id: str, bulk_cmd: str) -> bool:
+    """Re-broadcast a queued society command because one of its chargers is back online."""
+    society_id = await conn.fetchval(
+        """
+        SELECT m.society_id
+        FROM   chargers c JOIN meters m ON m.id = c.meter_id
+        WHERE  c.charger_id = $1
+        """,
+        charger_id,
+    )
+    if society_id is None:
+        return False
+    from app import mqtt_commands
+    send = mqtt_commands.send_deactivate_all if bulk_cmd == "DEACTIVATE_ALL" else mqtt_commands.send_activate_all
+    try:
+        await send(society_id)
+    except Exception as e:   # broker hiccup — next online/status retries
+        logger.error("Bulk re-broadcast failed | charger=%s society=%s cmd=%s error=%s",
+                     charger_id, society_id, bulk_cmd, e)
+        return False
+    now = _now()
+    await conn.execute(
+        """
+        UPDATE pending_commands SET attempts = attempts + 1, last_sent_at = $1
+        WHERE  charger_id = $2 AND cmd = $3 AND status = 'pending'
+        """,
+        now, charger_id, bulk_cmd,
+    )
+    # The broadcast reached every charger in the society — start the gap for all
+    # still-pending rows so several chargers reconnecting together don't each re-broadcast
+    await conn.execute(
+        """
+        UPDATE pending_commands SET last_sent_at = $1
+        WHERE  society_id = $2 AND cmd = $3 AND status = 'pending'
+        """,
+        now, society_id, bulk_cmd,
+    )
+    return True
 
 
 async def _send_single_for_bulk(conn: asyncpg.Connection, charger_id: str, bulk_cmd: str) -> bool:
-    """Send the per-charger DEACTIVATE / ACTIVE that matches a queued society command."""
+    """Send the per-charger DEACTIVATE / ACTIVE that matches a queued society command.
+    Only used for the ACTIVATE_ALL still_locked follow-up — retries re-broadcast instead."""
     target = await conn.fetchrow(
         """
         SELECT m.society_id, c.meter_id
@@ -394,6 +436,19 @@ async def _send_single_for_bulk(conn: asyncpg.Connection, charger_id: str, bulk_
 async def _resolve_bulk(conn: asyncpg.Connection, charger_id: str, bulk_cmd: str,
                         ok: bool, reason: str | None, now, from_broadcast: bool = False):
     """Apply a charger's answer (cmd_ack or heartbeat lock state) to its pending bulk row."""
+    # Re-broadcasts reach chargers that already resolved — their repeat acks change nothing
+    pending = await conn.fetchval(
+        """
+        SELECT 1 FROM pending_commands
+        WHERE  charger_id = $1 AND cmd = $2 AND status = 'pending'
+        LIMIT  1
+        """,
+        charger_id, bulk_cmd,
+    )
+    if not pending:
+        logger.debug("Bulk ack with no pending row — ignored | charger=%s cmd=%s", charger_id, bulk_cmd)
+        return
+
     if not ok:
         # stale_cmd / clock_invalid / replay_detected / auth_failed … — keep pending, retry on next heartbeat
         await conn.execute(
@@ -431,7 +486,7 @@ async def _resolve_bulk(conn: asyncpg.Connection, charger_id: str, bulk_cmd: str
 
 
 async def _retry_bulk_commands(conn: asyncpg.Connection, charger_id: str, payload: dict):
-    """Called on every heartbeat — the charger is online, so push any queued society command."""
+    """Called on online / status / heartbeat — the charger is reachable, so push any queued society command."""
     row = await conn.fetchrow(
         """
         SELECT id, cmd, last_sent_at
@@ -451,7 +506,7 @@ async def _retry_bulk_commands(conn: asyncpg.Connection, charger_id: str, payloa
     # Heartbeat reports lock state — if it already matches, no need to send anything
     locked  = payload.get("locked")
     reasons = set(payload.get("lock_reasons") or [])
-    if bulk_cmd == "DEACTIVATE_ALL" and locked is True and reasons & {"billing", "society"}:
+    if bulk_cmd == "DEACTIVATE_ALL" and locked is True and "society" in reasons:
         await _resolve_bulk(conn, charger_id, bulk_cmd, True, None, now)
         return
     if bulk_cmd == "ACTIVATE_ALL" and locked is False:
@@ -462,10 +517,9 @@ async def _retry_bulk_commands(conn: asyncpg.Connection, charger_id: str, payloa
     if last_sent and (now - last_sent).total_seconds() < RETRY_MIN_GAP_S:
         return
 
-    if not await _send_single_for_bulk(conn, charger_id, bulk_cmd):
+    if not await _rebroadcast_bulk(conn, charger_id, bulk_cmd):
         return
-    logger.info("Bulk retry sent on heartbeat | charger=%s queued=%s sent=%s",
-                charger_id, bulk_cmd, SINGLE_FOR_BULK[bulk_cmd])
+    logger.info("Bulk command re-broadcast | charger=%s cmd=%s", charger_id, bulk_cmd)
 
 
 async def handle_heartbeat(conn: asyncpg.Connection, payload: dict):
@@ -533,10 +587,27 @@ async def handle_status(conn: asyncpg.Connection, payload: dict):
         charger_id, charger_status, voltage, current, energy_kwh,
         rfid_uid, duration_min, fault_code, _now(),
     )
+    # Idle chargers don't heartbeat — status is their periodic sign of life
+    await _retry_bulk_commands(conn, charger_id, payload)
     logger.debug(
         "status | charger=%s status=%s voltage=%s current=%s energy_kwh=%s temp=%s",
         charger_id, charger_status, voltage, current, energy_kwh, temperature_c,
     )
+
+
+async def handle_online(conn: asyncpg.Connection, payload: dict):
+    """
+    Published by the charger on (re)connect. Push any society command it
+    missed while offline right away instead of waiting for the next status.
+    """
+    charger_id = payload.get("charger_id")
+    if not charger_id:
+        logger.warning("Online message missing charger_id — skipping")
+        return
+
+    await _update_charger_last_seen(conn, charger_id, payload.get("fw_version"))
+    await _retry_bulk_commands(conn, charger_id, payload)
+    logger.info("charger online | charger=%s fw=%s", charger_id, payload.get("fw_version"))
 
 
 async def handle_cmd_ack(conn: asyncpg.Connection, payload: dict):
@@ -865,20 +936,6 @@ async def handle_offline(conn: asyncpg.Connection, payload: dict):
     logger.info("charger offline (LWT) | charger=%s", charger_id)
 
 
-# ── Message router maps ─────────────────────────────────────────────
-
-# evt/* topics — charger events
-EVT_HANDLER_MAP = {
-    "charging_started":          lambda conn, p: handle_charging_started(conn, p),
-    "session_resumed":           lambda conn, p: handle_charging_started(conn, p),   # same handler, event field distinguishes
-    "charging_ended":            lambda conn, p: handle_charging_ended(conn, p, "charging_ended"),
-    "charging_ended_error":      lambda conn, p: handle_charging_ended(conn, p, "charging_ended_error"),
-    "charging_stopped_by_admin": lambda conn, p: handle_charging_ended(conn, p, "charging_stopped_by_admin"),
-    "heartbeat":                 lambda conn, p: handle_heartbeat(conn, p),
-    "status":                    lambda conn, p: handle_status(conn, p),
-    "offline":                   lambda conn, p: handle_offline(conn, p),
-}
-
 async def handle_handshake_ack(conn: asyncpg.Connection | None, payload: dict):
     """
     Handles ack/handshake from charger.
@@ -914,6 +971,7 @@ EVT_HANDLER_MAP = {
     "charging_stopped_by_admin": lambda conn, p: handle_charging_ended(conn, p, "charging_stopped_by_admin"),
     "heartbeat":                 lambda conn, p: handle_heartbeat(conn, p),
     "status":                    lambda conn, p: handle_status(conn, p),
+    "online":                    lambda conn, p: handle_online(conn, p),
     "offline":                   lambda conn, p: handle_offline(conn, p),
 }
 

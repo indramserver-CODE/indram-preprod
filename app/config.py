@@ -48,6 +48,12 @@ class Settings(BaseSettings):
 
     # Billing cron
     BILLING_DAY_OF_MONTH: int = 1
+    ENABLE_SCHEDULER: bool = False   # run reminder jobs — enable on exactly one instance
+
+    # Indram details printed on the GST tax invoice
+    INDRAM_LEGAL_NAME: str = "Indram"
+    INDRAM_ADDRESS:    str = ""
+    INDRAM_GSTIN:      str = ""
 
     # MQTT command auth token (must match CMD_AUTH_TOKEN in charger firmware)
     CMD_AUTH_TOKEN: str = ""

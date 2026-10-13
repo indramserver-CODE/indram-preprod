@@ -78,13 +78,20 @@ async def lifespan(app: FastAPI):
     from app.models.user     import User, SocietyAdmin  # noqa: F401
     from app.models.rfid     import RFIDCard          # noqa: F401
     from app.models.session  import ChargingSession   # noqa: F401
-    from app.models.bill     import MonthlyBill, FlatBill, IndramBill  # noqa: F401
+    from app.models.bill     import MonthlyBill, FlatBill, FlatBillSession, IndramBill, InvoiceCounter  # noqa: F401
     from app.models.ticket   import Ticket, TicketComment  # noqa: F401
     from app.models.command_log     import CommandLog, PendingCommand  # noqa: F401
     from app.models.password_reset  import PasswordResetToken          # noqa: F401
+    from app.models.notification    import Notification                # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    if settings.ENABLE_SCHEDULER:
+        from app.services.scheduler import start_scheduler
+        start_scheduler()
+    else:
+        logger.info("Billing scheduler disabled on this instance (ENABLE_SCHEDULER != true)")
 
     mqtt_task = None
     if settings.ENABLE_MQTT:
@@ -97,6 +104,10 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if settings.ENABLE_SCHEDULER:
+        from app.services.scheduler import stop_scheduler
+        stop_scheduler()
+
     if mqtt_task:
         mqtt_task.cancel()
         try:
@@ -133,10 +144,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],   # lets the frontend read download filenames
 )
 
 # ── Routers ───────────────────────────────────────────────
-from app.routers import auth, societies, flats, chargers, admin_users, sessions, usage, billing
+from app.routers import auth, societies, flats, chargers, admin_users, sessions, usage, billing, notifications, society_settings
 from app.routers.meters import super_router as meters_super_router, society_router as meters_society_router
 from app.routers.rfid import super_router as rfid_super_router, society_router as rfid_society_router
 from app.routers.analytics import router_society as analytics_society_router, router_admin as analytics_admin_router
@@ -157,6 +169,8 @@ app.include_router(usage.router,             prefix="/api/usage",             ta
 app.include_router(billing.router,           prefix="/api/billing",           tags=["Billing"])
 app.include_router(indram_super_router,      prefix="/api/indram-bills",       tags=["Indram Bills"])
 app.include_router(indram_society_router,    prefix="/api/sa/indram-bills",    tags=["SA Indram Bills"])
+app.include_router(society_settings.router,  prefix="/api/sa/society",        tags=["SA Society Settings"])
+app.include_router(notifications.router,     prefix="/api/notifications",      tags=["Notifications"])
 app.include_router(tickets.router,           prefix="/api/tickets",            tags=["Tickets"])
 app.include_router(analytics_society_router, prefix="/api/analytics/society", tags=["Analytics - Society"])
 app.include_router(analytics_admin_router,   prefix="/api/analytics/admin",   tags=["Analytics - Admin"])

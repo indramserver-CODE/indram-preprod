@@ -10,6 +10,7 @@ export const SUPER_ADMIN_NAV = [
   { key: 'rfid',       label: 'RFID',       to: '/super-admin/rfid',       desc: 'Card management' },
   { key: 'admins',       label: 'Admins',        to: '/super-admin/admins',        desc: 'Manage admins' },
   { key: 'indram-bills', label: 'Indram Bills',  to: '/super-admin/indram-bills',  desc: 'Platform invoice revenue' },
+  { key: 'notifications', label: 'Notifications', to: '/super-admin/notifications', desc: 'Chargers to switch off / on' },
   { key: 'tickets',      label: 'Support',       to: '/super-admin/tickets',       desc: 'Support tickets' },
   { key: 'analytics',  label: 'Analytics',  to: '/super-admin/analytics',  desc: 'Reports & insights' },
 ];
@@ -24,6 +25,7 @@ export const SOCIETY_ADMIN_NAV = [
   { key: 'rfid',       label: 'RFID',       to: '/admin/rfid',        desc: 'Card management' },
   { key: 'bills',        label: 'Bills',        to: '/admin/bills',          desc: 'Billing history' },
   { key: 'indram-bills', label: 'Indram Bill',  to: '/admin/indram-bills',   desc: 'Platform invoice' },
+  { key: 'billing-settings', label: 'Billing Settings', to: '/admin/billing-settings', desc: 'Letterhead & payment details' },
   { key: 'tariff',       label: 'Tariff',       to: '/admin/tariff',         desc: 'Rate history' },
   { key: 'tickets',    label: 'Support',    to: '/admin/tickets',     desc: 'Support tickets' },
   { key: 'analytics',  label: 'Analytics',  to: '/admin/analytics',   desc: 'Reports & insights' },

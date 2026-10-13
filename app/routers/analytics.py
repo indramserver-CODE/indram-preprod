@@ -655,6 +655,7 @@ async def billing_trend(
           JOIN meters m ON m.id = mb.meter_id
           LEFT JOIN flat_bills fb ON fb.monthly_bill_id = mb.id
          WHERE m.society_id = :sid
+           AND mb.status = 'sent'
          GROUP BY mb.id, mb.billing_month,
                   mb.total_bill_amount,
                   mb.total_units_consumed,
@@ -765,6 +766,7 @@ async def download_report(
               JOIN meters m ON m.id = mb.meter_id
               LEFT JOIN flat_bills fb ON fb.monthly_bill_id = mb.id
              WHERE m.society_id = :sid
+               AND mb.status = 'sent'
              GROUP BY mb.id, mb.billing_month, mb.total_bill_amount,
                       mb.total_units_consumed, mb.effective_unit_rate
              ORDER BY mb.billing_month DESC LIMIT 12
@@ -1151,6 +1153,7 @@ async def platform_overview(
             JOIN meters m ON m.id = mb.meter_id
             WHERE mb.billing_month >= :month_start
               AND mb.billing_month  < :month_end
+              AND mb.status = 'sent'
               AND {sw_b}
         ),
 
@@ -1305,9 +1308,15 @@ async def society_comparison(
                 COALESCE(SUM(fb.indram_charges), 0)::float       AS indram_revenue
               FROM monthly_bills mb
               JOIN meters m ON m.id = mb.meter_id
-              LEFT JOIN flat_bills fb ON fb.monthly_bill_id = mb.id
+              -- pre-aggregate so each MSEB bill amount is counted once, not once per flat
+              LEFT JOIN (
+                    SELECT monthly_bill_id, SUM(indram_charges) AS indram_charges
+                      FROM flat_bills
+                     GROUP BY monthly_bill_id
+              ) fb ON fb.monthly_bill_id = mb.id
              WHERE mb.billing_month >= :start
                AND mb.billing_month  < :end
+               AND mb.status = 'sent'
              GROUP BY m.society_id
         ),
         charger_stats AS (
@@ -1812,6 +1821,7 @@ async def admin_society_billing_trend(
           JOIN meters m ON m.id = mb.meter_id
           LEFT JOIN flat_bills fb ON fb.monthly_bill_id = mb.id
          WHERE m.society_id = :sid
+           AND mb.status = 'sent'
          GROUP BY mb.id, mb.billing_month, mb.total_bill_amount,
                   mb.total_units_consumed, mb.effective_unit_rate
          ORDER BY mb.billing_month DESC

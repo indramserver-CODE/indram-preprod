@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
-import { fmtMoney } from '../../utils/format';
+import { fmtMoney, fmtPeriod } from '../../utils/format';
 
-function fmtMonth(dateStr) {
-  return new Date(dateStr + '-02').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-}
+const byTillDesc = (a, b) => (a.period_till < b.period_till ? 1 : a.period_till > b.period_till ? -1 : 0);
 
 export default function SaTariff() {
   const { showToast } = useToast();
@@ -22,7 +20,7 @@ export default function SaTariff() {
         const [societyData, meterData, billData] = await Promise.all([
           api('GET', '/api/usage/society').catch(() => ({})),
           api('GET', '/api/sa/meters').catch(() => []),
-          api('GET', '/api/billing').catch(() => []),
+          api('GET', '/api/billing?status=sent').catch(() => []),   // drafts / cancelled bills aren't rates
         ]);
         setSocietyName(societyData?.name || '');
         setMeters(meterData);
@@ -50,7 +48,7 @@ export default function SaTariff() {
   const latestPerMeter = meters.map(m => {
     const meterBills = bills
       .filter(b => b.meter_id === m.id)
-      .sort((a, b) => new Date(b.billing_month) - new Date(a.billing_month));
+      .sort(byTillDesc);
     return { meter: m, latest: meterBills[0] || null };
   });
 
@@ -120,7 +118,7 @@ export default function SaTariff() {
                       <span style={{ fontSize: 13, color: '#718096', fontWeight: 400 }}>/kWh</span>
                     </div>
                     <div style={{ fontSize: 12, color: '#4a5568', marginTop: 6 }}>
-                      {fmtMonth(latest.billing_month)}
+                      {fmtPeriod(latest.period_from, latest.period_till)}
                     </div>
                     <div style={{ fontSize: 12, color: '#718096', marginTop: 2 }}>
                       Base tariff: {fmtMoney(latest.effective_unit_rate, 4)}/kWh
@@ -170,7 +168,7 @@ export default function SaTariff() {
         <table>
           <thead>
             <tr>
-              <th>Billing Month</th>
+              <th>Billing Period</th>
               {meters.length > 1 && <th>Meter</th>}
               <th>Base Tariff (₹/kWh)</th>
               <th>Effective Rate (₹/kWh)</th>
@@ -193,14 +191,14 @@ export default function SaTariff() {
             ) : (
               filteredBills
                 .slice()
-                .sort((a, b) => new Date(b.billing_month) - new Date(a.billing_month))
+                .sort(byTillDesc)
                 .map((b, i) => {
                   const meter = meterMap[b.meter_id];
                   const isLatest = i === 0 || (meterFilter && i === 0);
                   return (
                     <tr key={b.id}>
                       <td>
-                        <strong>{fmtMonth(b.billing_month)}</strong>
+                        <strong>{fmtPeriod(b.period_from, b.period_till)}</strong>
                         {isLatest && !meterFilter && (
                           <span className="badge badge-green" style={{ marginLeft: 8 }}>Latest</span>
                         )}

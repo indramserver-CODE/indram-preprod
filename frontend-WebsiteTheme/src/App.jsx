@@ -27,6 +27,8 @@ import SaMeters from './pages/admin/SaMeters';
 import SaIndramBills from './pages/admin/SaIndramBills';
 import SocietyAnalytics from './pages/admin/SocietyAnalytics';
 import IndramBills from './pages/superadmin/IndramBills';
+import Notifications from './pages/superadmin/Notifications';
+import SaBillingSettings from './pages/admin/SaBillingSettings';
 
 export default function App() {
   return (
@@ -52,6 +54,7 @@ export default function App() {
         <Route path="rfid"       element={<Rfid />} />
         <Route path="admins"       element={<Admins />} />
         <Route path="indram-bills" element={<IndramBills />} />
+        <Route path="notifications" element={<Notifications />} />
         <Route path="tickets"      element={<Tickets scope="super" />} />
         <Route path="analytics"  element={<SuperAdminAnalytics />} />
       </Route>
@@ -74,6 +77,7 @@ export default function App() {
         <Route path="rfid"       element={<SaRfid />} />
         <Route path="bills"        element={<SaBills />} />
         <Route path="indram-bills" element={<SaIndramBills />} />
+        <Route path="billing-settings" element={<SaBillingSettings />} />
         <Route path="tariff"       element={<SaTariff />} />
         <Route path="tickets"    element={<Tickets scope="society" />} />
         <Route path="analytics"  element={<SocietyAnalytics />} />

@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api/client';
+import { api, apiDownload } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
-import { toNum } from '../../utils/format';
+import { toNum, fmtDate, fmtPeriod, todayIso } from '../../utils/format';
 
-function fmtMonth(d) {
-    return new Date(d + '-02').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-}
+// Society admin: Indram's GST tax invoices — one each time a meter's bills are sent.
+
 function fmtCurrency(v) {
-    return `\u20B9${toNum(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `₹${toNum(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export default function SaIndramBills() {
@@ -15,10 +14,10 @@ export default function SaIndramBills() {
     const [societyName, setSocietyName] = useState('');
     const [bills, setBills] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [detailView, setDetailView] = useState(null);
+    const [detail, setDetail] = useState(null);
 
     useEffect(() => {
-        api('GET', '/api/usage/society').then(s => setSocietyName(s.name)).catch(() => { });
+        api('GET', '/api/sa/society').then(s => setSocietyName(s.name)).catch(() => { });
         api('GET', '/api/sa/indram-bills')
             .then(setBills)
             .catch(e => showToast(e.message, 'error'))
@@ -26,25 +25,28 @@ export default function SaIndramBills() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    async function loadDetail(bill) {
-        try { setDetailView(await api('GET', `/api/sa/indram-bills/${bill.id}`)); }
+    async function openDetail(bill) {
+        try { setDetail(await api('GET', `/api/sa/indram-bills/${bill.id}`)); }
         catch (e) { showToast(e.message, 'error'); }
     }
 
-    const totalUnpaid = bills
-        .filter(b => b.payment_status === 'unpaid')
-        .reduce((s, b) => s + toNum(b.total_indram_amount), 0);
+    function download(bill, kind) {
+        apiDownload(`/api/sa/indram-bills/${bill.id}/${kind}`).catch(e => showToast(e.message, 'error'));
+    }
+
+    const unpaid = bills.filter(b => b.payment_status === 'unpaid');
+    const totalUnpaid = unpaid.reduce((s, b) => s + toNum(b.total_payable), 0);
+    const lateCount = unpaid.filter(b => b.late_flag).length;
 
     return (
         <div>
             <div className="page-header">
                 <div>
-                    <div className="page-title">Indram Bill</div>
+                    <div className="page-title">Indram Bills</div>
                     <div style={{ fontSize: 13, color: '#4a5568', marginTop: 2 }}>{societyName}</div>
                 </div>
             </div>
 
-            {/* Info banner */}
             <div style={{
                 background: 'rgba(0, 255, 65, 0.06)', border: '1px solid rgba(0, 255, 65, 0.2)',
                 borderRadius: 12, padding: '14px 18px', marginBottom: 20,
@@ -52,13 +54,12 @@ export default function SaIndramBills() {
             }}>
                 <span style={{ fontSize: 20 }}>ℹ️</span>
                 <div style={{ fontSize: 13, color: '#4a5568', lineHeight: 1.7 }}>
-                    The Indram platform invoice is automatically generated each time you generate flat bills.
-                    It represents the platform service charge collected from your flats on behalf of Indram.
-                    Payment status is updated by the Indram team once payment is received.
+                    Indram sends a GST tax invoice each time you send a meter's bills to residents: the Indram service
+                    charge for the units billed, plus 18% GST. Pay it by the due date — a late fee is added after that.
+                    Once Indram records your payment, it shows as Paid and you can download the receipt.
                 </div>
             </div>
 
-            {/* Outstanding banner */}
             {!loading && totalUnpaid > 0 && (
                 <div style={{
                     background: '#fff5f5', border: '1px solid #fed7d7', borderRadius: 12,
@@ -68,47 +69,49 @@ export default function SaIndramBills() {
                     <div>
                         <div style={{ fontWeight: 700, color: '#c53030', fontSize: 14 }}>Outstanding Amount</div>
                         <div style={{ fontSize: 13, color: '#718096', marginTop: 2 }}>
-                            Transfer {fmtCurrency(totalUnpaid)} to Indram to clear pending invoices.
+                            {unpaid.length} unpaid invoice{unpaid.length === 1 ? '' : 's'}
+                            {lateCount > 0 && <> · <strong style={{ color: '#c53030' }}>{lateCount} with a late fee</strong></>}
+                            . Use the invoice number as the payment reference.
                         </div>
                     </div>
                     <div style={{ fontSize: 24, fontWeight: 700, color: '#c53030' }}>{fmtCurrency(totalUnpaid)}</div>
                 </div>
             )}
 
-            {/* Bills table */}
-            <div className="table-wrap" style={{ marginBottom: detailView ? 24 : 0 }}>
+            <div className="table-wrap" style={{ marginBottom: detail ? 24 : 0 }}>
                 <table>
                     <thead>
-                        <tr><th>Month</th><th>Total Units (kWh)</th><th>Amount</th><th>Due Date</th><th>Invoice Email</th><th>Payment Status</th><th>Actions</th></tr>
+                        <tr><th>Invoice No.</th><th>Meter · Period</th><th>Units (kWh)</th><th>Charges</th><th>Total (incl. GST)</th><th>Due Date</th><th>Status</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr className="empty-row"><td colSpan={7}>Loading...</td></tr>
+                            <tr className="empty-row"><td colSpan={8}>Loading...</td></tr>
                         ) : bills.length === 0 ? (
-                            <tr className="empty-row"><td colSpan={7}>No Indram bills yet — generated automatically when you create flat bills</td></tr>
+                            <tr className="empty-row"><td colSpan={8}>No Indram invoices yet — one is issued each time you send bills to residents</td></tr>
                         ) : bills.map(b => (
                             <tr key={b.id}>
-                                <td><strong>{fmtMonth(b.billing_month)}</strong></td>
-                                <td>{parseFloat(b.total_units).toFixed(2)}</td>
-                                <td><strong>{fmtCurrency(b.total_indram_amount)}</strong></td>
-                                <td style={{ fontSize: 13, color: '#4a5568' }}>{new Date(b.due_date).toLocaleDateString('en-IN')}</td>
+                                <td style={{ fontFamily: 'monospace', fontSize: 13 }}><strong>{b.invoice_number}</strong></td>
+                                <td style={{ fontSize: 13 }}>{b.meter_label}<div style={{ color: '#718096', fontSize: 12 }}>{fmtPeriod(b.period_from, b.period_till)}</div></td>
+                                <td>{toNum(b.total_units).toFixed(2)}</td>
                                 <td>
-                                    <span className={`badge ${b.email_status === 'sent' ? 'badge-green' : b.email_status === 'failed' ? 'badge-red' : 'badge-gray'}`}>
-                                        {b.email_status === 'sent' ? 'Sent' : b.email_status === 'failed' ? 'Failed' : 'Pending'}
-                                    </span>
+                                    {fmtCurrency(b.total_indram_amount)}
+                                    {toNum(b.late_fee) > 0 && <div style={{ fontSize: 11, color: '#c53030' }}>+ {fmtCurrency(b.late_fee)} late fee</div>}
                                 </td>
+                                <td><strong>{fmtCurrency(b.total_payable)}</strong></td>
+                                <td style={{ fontSize: 13, color: b.payment_status === 'unpaid' && b.due_date < todayIso() ? '#c53030' : '#4a5568' }}>{fmtDate(b.due_date)}</td>
                                 <td>
                                     <span className={`badge ${b.payment_status === 'paid' ? 'badge-green' : 'badge-red'}`}>
                                         {b.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
                                     </span>
-                                    {b.paid_at && (
-                                        <div style={{ fontSize: 11, color: '#718096', marginTop: 2 }}>
-                                            {new Date(b.paid_at).toLocaleDateString('en-IN')}
-                                        </div>
-                                    )}
+                                    {b.late_flag && <span className="badge badge-amber" style={{ marginLeft: 4 }}>Late</span>}
+                                    {b.paid_at && <div style={{ fontSize: 11, color: '#718096', marginTop: 2 }}>{fmtDate(b.paid_at)}</div>}
                                 </td>
                                 <td>
-                                    <button className="btn btn-sm btn-secondary" onClick={() => loadDetail(b)}>Details</button>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        <button className="btn btn-sm btn-secondary" onClick={() => openDetail(b)}>Details</button>
+                                        <button className="btn btn-sm btn-secondary" onClick={() => download(b, 'pdf')}>Invoice</button>
+                                        {b.has_receipt && <button className="btn btn-sm btn-primary" onClick={() => download(b, 'receipt')}>Download receipt</button>}
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -116,26 +119,27 @@ export default function SaIndramBills() {
                 </table>
             </div>
 
-            {/* Detail panel */}
-            {detailView && (
+            {detail && (
                 <div style={{ marginTop: 4 }}>
                     <div className="page-header" style={{ marginBottom: 16 }}>
                         <div>
-                            <div className="page-title" style={{ fontSize: 18 }}>
-                                {fmtMonth(detailView.billing_month)} — Invoice Detail
+                            <div className="page-title" style={{ fontSize: 18 }}>Invoice {detail.invoice_number}</div>
+                            <div style={{ fontSize: 13, color: '#4a5568', marginTop: 3 }}>
+                                {detail.meter_label} ({detail.meter_number}) · {fmtPeriod(detail.period_from, detail.period_till)}
+                                {detail.replaces_number && <> · replaces cancelled invoice {detail.replaces_number}</>}
                             </div>
-                            <div style={{ fontSize: 13, color: '#4a5568', marginTop: 3 }}>Breakdown per meter</div>
                         </div>
-                        <button className="btn btn-secondary" onClick={() => setDetailView(null)}>Close</button>
+                        <button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>
                     </div>
 
-                    {/* Summary strip */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
                         {[
-                            { label: 'Total Units', value: `${parseFloat(detailView.total_units).toFixed(2)} kWh` },
-                            { label: 'Total Amount', value: fmtCurrency(detailView.total_indram_amount) },
-                            { label: 'Due Date', value: new Date(detailView.due_date).toLocaleDateString('en-IN') },
-                            { label: 'Status', value: detailView.payment_status === 'paid' ? 'Paid' : 'Unpaid' },
+                            { label: 'Units', value: `${toNum(detail.total_units).toFixed(3)} kWh @ ${fmtCurrency(detail.indram_rate)}` },
+                            { label: 'Charges', value: fmtCurrency(detail.total_indram_amount) },
+                            { label: `Late fee${detail.late_fee_pct ? ` (${toNum(detail.late_fee_pct)}%)` : ''}`, value: fmtCurrency(detail.late_fee) },
+                            { label: 'CGST 9% + SGST 9%', value: fmtCurrency(toNum(detail.cgst) + toNum(detail.sgst)) },
+                            { label: 'Total payable', value: fmtCurrency(detail.total_payable) },
+                            { label: 'Due date', value: fmtDate(detail.due_date) },
                         ].map(item => (
                             <div key={item.label} style={{ background: '#f9fafb', border: '1px solid rgba(0,0,0,0.07)', borderRadius: 10, padding: '12px 16px' }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#718096', marginBottom: 4 }}>{item.label}</div>
@@ -144,36 +148,16 @@ export default function SaIndramBills() {
                         ))}
                     </div>
 
-                    {/* Meter breakdown */}
-                    <div className="table-wrap">
-                        <table>
-                            <thead>
-                                <tr><th>Meter Number</th><th>Meter Label</th><th>Units Billed (kWh)</th><th>Indram Charges</th></tr>
-                            </thead>
-                            <tbody>
-                                {!detailView.meter_breakdown?.length ? (
-                                    <tr className="empty-row"><td colSpan={4}>No meter data</td></tr>
-                                ) : detailView.meter_breakdown.map(m => (
-                                    <tr key={m.meter_id}>
-                                        <td><code style={{ fontSize: 12 }}>{m.meter_number}</code></td>
-                                        <td><strong>{m.meter_label}</strong></td>
-                                        <td>{parseFloat(m.units_billed).toFixed(4)}</td>
-                                        <td><strong>{fmtCurrency(m.indram_amount)}</strong></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {/* Payment note */}
-                    <div style={{
-                        marginTop: 16, background: '#f0f9ff', border: '1px solid #bae6fd',
-                        borderRadius: 10, padding: '14px 18px', fontSize: 13, color: '#0c4a6e',
-                    }}>
-                        <strong>How to pay:</strong> Transfer {fmtCurrency(detailView.total_indram_amount)} to Indram using the bank details
-                        provided in the invoice PDF sent to your email. Use the invoice number as the payment reference.
-                        The Indram team will mark this bill as paid once the transfer is confirmed.
-                    </div>
+                    {detail.payment_status === 'unpaid' && (
+                        <div style={{
+                            background: '#f0f9ff', border: '1px solid #bae6fd',
+                            borderRadius: 10, padding: '14px 18px', fontSize: 13, color: '#0c4a6e',
+                        }}>
+                            <strong>How to pay:</strong> transfer {fmtCurrency(detail.total_payable)} to Indram with
+                            {' '}<strong>{detail.invoice_number}</strong> as the reference. Indram marks the invoice Paid once the transfer
+                            is confirmed, and the receipt appears here.
+                        </div>
+                    )}
                 </div>
             )}
         </div>

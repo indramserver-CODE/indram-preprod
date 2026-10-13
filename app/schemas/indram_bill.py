@@ -3,49 +3,40 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 
-class MeterBreakdownItem(BaseModel):
-    """Per-meter breakdown shown inside an IndramBill detail view."""
-    meter_id:      int
-    meter_number:  str
-    meter_label:   str
-    units_billed:  Decimal
-    indram_amount: Decimal
-
-    model_config = {"from_attributes": True}
-
-
-class IndramBillOut(BaseModel):
-    id:                  int
-    society_id:          int
-    society_name:        str | None = None
-    billing_month:       date
-    total_indram_amount: Decimal
-    total_units:         Decimal
-    due_date:            date
-    payment_status:      str        # unpaid | paid
-    paid_at:             datetime | None
-    pdf_s3_key:          str | None
-    email_status:        str
-    email_sent_at:       datetime | None
-    created_at:          datetime
-    updated_at:          datetime
-    meter_breakdown:     list[MeterBreakdownItem] = []
-
-    model_config = {"from_attributes": True}
-
-
 class IndramBillSummaryOut(BaseModel):
     id:                  int
+    invoice_number:      str
     society_id:          int
     society_name:        str | None = None
+    meter_id:            int | None = None
+    meter_label:         str | None = None
     billing_month:       date
-    total_indram_amount: Decimal
+    period_from:         date
+    period_till:         date
     total_units:         Decimal
+    total_indram_amount: Decimal       # charges before late fee and GST
+    late_flag:           bool
+    late_fee:            Decimal
+    cgst:                Decimal
+    sgst:                Decimal
+    total_payable:       Decimal
     due_date:            date
-    payment_status:      str
+    status:              str           # issued | cancelled
+    payment_status:      str           # unpaid | paid
     paid_at:             datetime | None
     email_status:        str
+    has_receipt:         bool          # paid → "Download receipt"
     created_at:          datetime
-    updated_at:          datetime
 
-    model_config = {"from_attributes": True}
+
+class IndramBillOut(IndramBillSummaryOut):
+    meter_number:          str | None = None
+    indram_rate:           Decimal
+    late_fee_pct:          Decimal | None
+    society_gstin:         str | None
+    monthly_bill_id:       int
+    replaces_number:       str | None = None   # this invoice replaced a cancelled one
+    replaced_by_number:    str | None = None   # this (cancelled) invoice was replaced
+    late_flag_allowed_from: date | None = None # due date + society's Indram grace days
+    email_sent_at:         datetime | None
+    updated_at:            datetime
