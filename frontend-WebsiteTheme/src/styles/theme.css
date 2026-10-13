@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+/* Design tokens ported from the Indram website (src/app/globals.css) so the
+   webapp shares the same brand identity: black canvas, neon-green accent,
+   Inter/Outfit type. */
+:root {
+  --brand-green: #00ff41;
+  --brand-green-soft: #2ecc55;
+  --brand-green-deep: #147a2b;
+  --brand-green-dim: rgba(0, 255, 65, 0.12);
+
+  --primary: #00ff41;
+  --primary-hover: #33ff66;
+  --secondary: #6366f1;
+  --accent: #f43f5e;
+
+  --bg-app: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-card: #14161a;
+  --bg-card-alt: #1e222a;
+  --bg-elevated: rgba(255, 255, 255, 0.03);
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.2);
+
+  --text-primary: #f2f2f2;
+  --text-secondary: #a3a3ab;
+  --text-muted: #6b6b74;
+
+  --glass-bg: rgba(10, 10, 10, 0.7);
+  --glass-blur: blur(12px);
+
+  --font-primary: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+/* Dashboard content-area tokens — content background now uses the
+     "01 Gradient" from the brand color chart instead of the flat grey.
+     Chrome (topbar/sidebar) stays pure black to match the navbar; the
+     login screen keeps the dark cinematic tokens above. */
+--chrome-bg: #000000;
+--sidebar-bg: #2b2b32;
+--header-gradient: linear-gradient(135deg, #74AA3B 0%, #1A2F03 100%);
+--content-bg: #ffffff;
+--content-card: #ffffff;
+--content-card-alt: #f4f4f4;
+--content-border: rgba(0, 0, 0, 0.08);
+--content-border-strong: rgba(0, 0, 0, 0.14);
+--content-text-primary: #1a202c;
+--content-text-secondary: #4a5568;
+--content-text-muted: #718096;
+}

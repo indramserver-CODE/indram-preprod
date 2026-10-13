@@ -1,0 +1,102 @@
+name: Deploy EVC System
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # -----------------------
+  # 1. BACKEND DEPLOY
+  # -----------------------
+  deploy-backend:
+    name: Build and deploy backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG $ECR_REGISTRY/evc-prod-ecr-api:latest
+          docker push $ECR_REGISTRY/evc-prod-ecr-api:latest
+          echo "image=$ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition evc-prod-task-api \
+            --query taskDefinition \
+            | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy, .enableFaultInjection)' \
+            > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name:  api
+          image:           ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition:            ${{ steps.task-def.outputs.task-definition }}
+          service:                    evc-prod-svc-api
+          cluster:                    evc-prod-ecs-cluster
+          wait-for-service-stability: true
+
+
+  # -----------------------
+  # 2. FRONTEND DEPLOY
+  # -----------------------
+  deploy-frontend:
+    name: Deploy frontend to S3
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ap-south-1
+
+      # ✅ HTML — NEVER CACHE
+      - name: Deploy HTML files (no cache)
+        run: |
+          aws s3 sync ./frontend/ s3://evc-prod-s3-frontend \
+            --exclude "*" --include "*.html" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --content-type "text/html" \
+            --delete
+
+      # ✅ JS/CSS — ALSO NO CACHE (important fix)
+      - name: Deploy JS, CSS, assets (no cache)
+        run: |
+          aws s3 sync ./frontend/ s3://evc-prod-s3-frontend \
+            --exclude "*.html" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --delete

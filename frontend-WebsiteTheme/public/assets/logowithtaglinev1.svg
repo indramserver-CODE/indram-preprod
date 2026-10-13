@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1920 1080">
+  <!-- Generator: Adobe Illustrator 29.6.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 9)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: url(#linear-gradient);
+      }
+
+      .st0, .st1, .st2 {
+        stroke: #231f20;
+        stroke-miterlimit: 10;
+        stroke-width: 4px;
+      }
+
+      .st1 {
+        fill: #fff;
+      }
+
+      .st3, .st4, .st5 {
+        isolation: isolate;
+      }
+
+      .st4, .st5 {
+        font-family: BakbakOne-Regular, 'Bakbak One';
+        font-size: 63.47px;
+      }
+
+      .st2 {
+        fill: none;
+      }
+
+      .st5 {
+        fill: #58b244;
+      }
+    </style>
+    <linearGradient id="linear-gradient" x1="995.52" y1="-308.74" x2="835.88" y2="-9.82" gradientTransform="translate(0 278) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset=".11" stop-color="#20b24b"/>
+      <stop offset=".28" stop-color="#83c341"/>
+      <stop offset=".47" stop-color="#73bf44"/>
+      <stop offset=".66" stop-color="#0a8e45"/>
+      <stop offset=".95" stop-color="#2db34a"/>
+    </linearGradient>
+  </defs>
+  <polygon class="st1" points="458.15 427.26 493.97 412.27 495.34 621.77 458.15 609.4 458.15 427.26"/>
+  <polygon class="st1" points="523.96 400.49 568.25 384.03 623.65 531.42 623.65 366.02 663.85 354.63 661.71 664.02 624.13 654.38 564.85 501.25 567.09 641.24 523.96 630.43 523.96 400.49"/>
+  <path class="st1" d="M844.05,368.26c0-.78,0-1.46.19-2.14-9.54-27.65-33.29-39.23-76.03-34.56l-73.89,16.06-1.46,320.87c53.15,10.32,110.98,15.67,126.17-5.35l19.28-67.47,4.77-128.31-35.14.19,36.12-99.2v-.1h0Z"/>
+  <polygon class="st0" points="830.42 454.52 911.13 247.64 1021.72 247.64 951.82 388.8 1021.72 388.8 834.22 672.88 904.12 454.22 830.42 454.52"/>
+  <path class="st1" d="M1050.54,508.64c11.49-4.87,24.24-14.02,33.1-32.91,5.06-10.81,7.3-22.39,7.3-33.98v-63.77c-4.67-45.56-35.63-62.69-82.46-62.89l-21.81,43.13h.19c1.95,0,3.21.97,3.99,2.24,17.43,1.27,54.13-5.55,51.6,22.88l.39,61.53c-.39,6.72,1.75,30.67-22.98,32.32l-35.83,1.56-45.95,68.05,1.07,142.33,46.63-1.85v-164.43l22.88,2.34,40.3,158.88,47.12-4.96-45.56-170.46h.02Z"/>
+  <path class="st1" d="M1237.52,343.07s-.11-.08-.15-.12c-.61-.49-1.13-1.05-1.55-1.68l-52.69-7.96-61.92,341.41,48.09-7.11,9.74-80.12,58.7-.39,8.76,69.7,42.54-8.18-51.52-305.55ZM1185.47,551.38l28.13-163.55,18.89,163.55h-47.02Z"/>
+  <polygon class="st2" points="1213.6 387.73 1185.47 551.38 1232.49 551.38 1213.6 387.73"/>
+  <polygon class="st1" points="1316.8 642.21 1315.92 364.76 1353.79 377.9 1394.58 485.86 1430.31 408.76 1460.29 422.68 1461.85 605.22 1427.97 614.08 1429.04 488.88 1393.51 569.98 1357.1 467.95 1357.1 633.74 1316.8 642.21"/>
+  <path class="st2" d="M801.32,473.6l-.39-90.54c-2.73-15.48-15.97-20.93-37.87-18.2l-21.22,2.24,1.07,272.68h32.71c14.89-4.67,23.56-14.99,25.41-28.04l.29-138.24h0v.1Z"/>
+  <polygon class="st1" points="987.26 360.38 996.99 360.38 996.99 360.38 987.26 360.38"/>
+  <g class="st3">
+    <text class="st4" transform="translate(576.43 794.15)"><tspan x="0" y="0">EMPOWERING </tspan></text>
+    <text class="st5" transform="translate(1005.33 794.15)"><tspan x="0" y="0">EV</tspan></text>
+    <text class="st4" transform="translate(1082.7 794.15)"><tspan x="0" y="0">OLUTION</tspan></text>
+  </g>
+</svg>

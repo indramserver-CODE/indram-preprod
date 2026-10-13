@@ -1,0 +1,126 @@
+# ============================================================
+# Environment variables — NEVER commit these
+# ============================================================
+.env
+.env.dev
+.env.preprod
+.env.prod
+.env.local
+*.env
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+.env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+wheels/
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+
+# ============================================================
+# macOS specific
+# ============================================================
+# Finder metadata
+.DS_Store
+.DS_Store?
+._*
+
+# Spotlight index
+.Spotlight-V100
+
+# Trashes
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# macOS disk images
+*.dmg
+
+# Time Machine
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ============================================================
+# IDEs and editors
+# ============================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================================
+# Logs and databases
+# ============================================================
+*.log
+*.sqlite
+*.sqlite3
+*.db
+
+# ============================================================
+# Generated files
+# ============================================================
+# PDF bills generated locally during testing
+*.pdf
+
+# Uploaded files during testing
+uploads/
+temp/
+tmp/
+
+# ============================================================
+# Node (if you ever add a frontend build step)
+# ============================================================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ============================================================
+# Keep these — do NOT ignore
+# ============================================================
+# .env.example should be committed — it's just a template
+!.env.example

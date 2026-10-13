@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 103.86 46.54">
+  <!-- Generator: Adobe Illustrator 29.6.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 9)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #fff;
+      }
+
+      .st0, .st1 {
+        stroke: #231f20;
+        stroke-miterlimit: 10;
+        stroke-width: .75px;
+      }
+
+      .st1 {
+        fill: url(#linear-gradient);
+      }
+    </style>
+    <linearGradient id="linear-gradient" x1="55.58" y1="13.18" x2="39.18" y2="43.89" gradientTransform="translate(0 48.39) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset=".11" stop-color="#20b24b"/>
+      <stop offset=".28" stop-color="#83c341"/>
+      <stop offset=".47" stop-color="#73bf44"/>
+      <stop offset=".66" stop-color="#0a8e45"/>
+      <stop offset=".95" stop-color="#2db34a"/>
+    </linearGradient>
+  </defs>
+  <polygon class="st0" points=".38 18.83 4.06 17.29 4.2 38.81 .38 37.54 .38 18.83"/>
+  <polygon class="st0" points="7.14 16.08 11.69 14.39 17.38 29.53 17.38 12.54 21.51 11.37 21.29 43.15 17.43 42.16 11.34 26.43 11.57 40.81 7.14 39.7 7.14 16.08"/>
+  <path class="st0" d="M40.02,12.77c0-.08,0-.15.02-.22-.98-2.84-3.42-4.03-7.81-3.55l-7.59,1.65-.15,32.96c5.46,1.06,11.4,1.61,12.96-.55l1.98-6.93.49-13.18-3.61.02,3.71-10.19Z"/>
+  <polygon class="st1" points="38.62 21.63 46.91 .38 58.27 .38 51.09 14.88 58.27 14.88 39.01 44.06 46.19 21.6 38.62 21.63"/>
+  <path class="st0" d="M61.23,27.19c1.18-.5,2.49-1.44,3.4-3.38.52-1.11.75-2.3.75-3.49v-6.55c-.48-4.68-3.66-6.44-8.47-6.46l-2.24,4.43s.02,0,.02,0c.2,0,.33.1.41.23,1.79.13,5.56-.57,5.3,2.35l.04,6.32c-.04.69.18,3.15-2.36,3.32l-3.68.16-4.72,6.99.11,14.62,4.79-.19v-16.89l2.35.24,4.14,16.32,4.84-.51-4.68-17.51Z"/>
+  <path class="st0" d="M80.41,10.02l-5.56-.84-6.36,35.07,4.94-.73,1-8.23,6.03-.04.9,7.16,4.37-.84s-5.32-31.55-5.32-31.55ZM75.09,31.58l2.89-16.8,1.94,16.8h-4.83Z"/>
+  <polygon class="st0" points="77.98 14.77 75.09 31.58 79.92 31.58 77.98 14.77"/>
+  <polygon class="st0" points="88.58 40.91 88.49 12.41 92.38 13.76 96.57 24.85 100.24 16.93 103.32 18.36 103.48 37.11 100 38.02 100.11 25.16 96.46 33.49 92.72 23.01 92.72 40.04 88.58 40.91"/>
+  <path class="st0" d="M35.63,23.59l-.04-9.3c-.28-1.59-1.64-2.15-3.89-1.87l-2.18.23.11,28.01h3.36c1.53-.48,2.42-1.54,2.61-2.88l.03-14.2h0Z"/>
+  <rect class="st0" x="54.73" y="11.96" width="1" height="0"/>
+</svg>

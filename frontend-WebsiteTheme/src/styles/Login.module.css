@@ -1,0 +1,194 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+  position: relative;
+  overflow: hidden;
+}
+
+.page::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 900px;
+  height: 900px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(0, 255, 65, 0.08) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.card {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  padding: 48px 40px;
+  width: 100%;
+  max-width: 420px;
+}
+
+/* ── Logo block ─────────────────────────────────────────────────────── */
+.logo {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.logo img {
+  height: 64px;
+  width: auto;
+  display: block;
+  margin: 0 auto 12px;
+  object-fit: contain;
+  filter: brightness(1.1);
+}
+
+/* "Charger Management Software" — prominent, brand green */
+.productName {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-green);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+}
+
+/* "Sign in to your account" — subtle, below product name */
+.signInText {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Form ────────────────────────────────────────────────────────────── */
+.formGroup { margin-bottom: 20px; }
+
+.formGroup label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.formGroup input {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: var(--transition-smooth);
+  outline: none;
+}
+
+.formGroup input::placeholder { color: var(--text-muted); }
+
+.formGroup input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--brand-green-dim);
+}
+
+/* ── Password field with eye toggle ─────────────────────────────────── */
+.passwordWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* Make the input fill the wrapper and leave space for the eye button */
+.passwordWrap input {
+  padding-right: 44px;
+}
+
+.eyeBtn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+  line-height: 1;
+}
+
+.eyeBtn:hover {
+  color: var(--text-primary);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+.btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--primary);
+  color: #051005;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  margin-top: 8px;
+}
+
+.btn:hover { background: var(--primary-hover); }
+.btn:disabled { background: #3a3a3a; color: var(--text-muted); cursor: not-allowed; }
+
+/* ── Alerts ──────────────────────────────────────────────────────────── */
+.error {
+  background: rgba(252, 129, 129, 0.1);
+  border: 1px solid rgba(252, 129, 129, 0.35);
+  color: #fc8181;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.success {
+  background: var(--brand-green-dim);
+  border: 1px solid rgba(0, 255, 65, 0.35);
+  color: var(--brand-green);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+/* ── Links ───────────────────────────────────────────────────────────── */
+.backLink {
+  display: block;
+  text-align: center;
+  margin-top: 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: var(--transition-smooth);
+}
+.backLink:hover { color: var(--text-primary); }
+
+.forgotLink {
+  display: block;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  margin-top: -12px;
+  margin-bottom: 20px;
+  transition: var(--transition-smooth);
+}
+.forgotLink:hover { color: var(--brand-green); }
