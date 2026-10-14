@@ -14,10 +14,11 @@ Resident bill (per flat):
   total_payable          = electricity_incl_tax + indram_total
   late_fee (if unpaid)   = late_fee_pct% of total_payable          (no GST)
 
-Indram invoice (per send):
+Indram invoice (per send) — line items: charges, and the late fee once flagged:
   late_fee (if flagged)  = late_fee_pct% of charges
-  cgst = sgst            = 9% of (charges + late_fee)
-  total_payable          = charges + late_fee + cgst + sgst
+  cgst = sgst            = 9% of each line, rounded per line
+  rounding               = to the nearest rupee
+  total_payable          = charges + late_fee + cgst + sgst + rounding
 
 Billing period: sessions count by the date they ended, 00:00 on From to 23:59
 on Till, Indian time. Periods follow each other with no gap or overlap, and a
@@ -139,16 +140,26 @@ def late_fee_allowed_from(due_date: date, grace_days: int) -> date:
 
 # ── Indram invoice ────────────────────────────────────────────────────
 
+def round_rupee(amount: Decimal) -> Decimal:
+    return amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP).quantize(Decimal("0.01"))
+
+
 def calculate_indram_invoice(charges: Decimal, late_fee_pct: Decimal | None = None) -> dict:
     """Pass late_fee_pct only when the super admin has raised the late flag."""
-    fee        = late_fee(charges, late_fee_pct) if late_fee_pct is not None else Decimal("0.00")
-    cgst, sgst = gst_split(charges + fee)
+    fee = late_fee(charges, late_fee_pct) if late_fee_pct is not None else Decimal("0.00")
+    cgst, sgst = gst_split(charges)
+    if fee:
+        fee_cgst, fee_sgst = gst_split(fee)
+        cgst, sgst = cgst + fee_cgst, sgst + fee_sgst
+    exact = charges + fee + cgst + sgst
+    total = round_rupee(exact)
     return {
         "total_indram_amount": charges,
         "late_fee":            fee,
         "cgst":                cgst,
         "sgst":                sgst,
-        "total_payable":       charges + fee + cgst + sgst,
+        "rounding":            total - exact,
+        "total_payable":       total,
     }
 
 
@@ -203,12 +214,12 @@ def _int_to_words(n: int) -> str:
     return " ".join(parts)
 
 
-def amount_in_words(amount: Decimal) -> str:
+def amount_in_words(amount: Decimal, currency: str = "Rupees") -> str:
     """₹1,297.50 → "Rupees One Thousand Two Hundred Ninety Seven and Fifty Paise Only"."""
     amount = round2(amount)
     rupees = int(amount)
     paise  = int((amount - rupees) * 100)
-    words  = f"Rupees {_int_to_words(rupees)}"
+    words  = f"{currency} {_int_to_words(rupees)}"
     if paise:
         words += f" and {_below_100(paise)} Paise"
     return words + " Only"

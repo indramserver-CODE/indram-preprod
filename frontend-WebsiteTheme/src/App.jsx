@@ -20,7 +20,6 @@ import SaDashboard from './pages/admin/SaDashboard';
 import SaSessions from './pages/admin/SaSessions';
 import SaCompleted from './pages/admin/SaCompleted';
 import SaUsage from './pages/admin/SaUsage';
-import SaRfid from './pages/admin/SaRfid';
 import SaBills from './pages/admin/SaBills';
 import SaTariff from './pages/admin/SaTariff';
 import SaMeters from './pages/admin/SaMeters';
@@ -74,7 +73,7 @@ export default function App() {
         <Route path="sessions"   element={<SaSessions />} />
         <Route path="completed"  element={<SaCompleted />} />
         <Route path="usage"      element={<SaUsage />} />
-        <Route path="rfid"       element={<SaRfid />} />
+        <Route path="rfid"       element={<Navigate to="/admin/dashboard" replace />} />   {/* RFID is managed by the super admin only */}
         <Route path="bills"        element={<SaBills />} />
         <Route path="indram-bills" element={<SaIndramBills />} />
         <Route path="billing-settings" element={<SaBillingSettings />} />

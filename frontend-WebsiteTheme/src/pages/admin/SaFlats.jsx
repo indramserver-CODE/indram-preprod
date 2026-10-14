@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/common/Modal';
-import { LiveStatusBadge } from '../../components/common/FaultBadges';
+import { ChargerStatusBadge } from '../../components/common/FaultBadges';
 
 export default function SaFlats() {
   const { showToast } = useToast();
@@ -237,7 +237,7 @@ export default function SaFlats() {
                   </td>
                   <td>
                     {f.charger_id
-                      ? <LiveStatusBadge status={f.charger_status} faultCode={f.fault_code} />
+                      ? <ChargerStatusBadge status={f.charger_status} faultCode={f.fault_code} lockReasons={f.lock_reasons} lastSeenAt={f.last_seen_at} />
                       : <span style={{ color: '#a0aec0' }}>—</span>
                     }
                   </td>

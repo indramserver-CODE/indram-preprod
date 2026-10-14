@@ -87,7 +87,7 @@ def _summary_fields(inv: IndramBill, society_name: str | None, meter: Meter | No
         billing_month=inv.billing_month, period_from=inv.period_from, period_till=inv.period_till,
         total_units=inv.total_units, total_indram_amount=inv.total_indram_amount,
         late_flag=inv.late_flag, late_fee=inv.late_fee, cgst=inv.cgst, sgst=inv.sgst,
-        total_payable=inv.total_payable, due_date=inv.due_date, status=inv.status,
+        rounding=inv.rounding, total_payable=inv.total_payable, due_date=inv.due_date, status=inv.status,
         payment_status=inv.payment_status, paid_at=inv.paid_at, email_status=inv.email_status,
         has_receipt=inv.payment_status == "paid", created_at=inv.created_at,
     )

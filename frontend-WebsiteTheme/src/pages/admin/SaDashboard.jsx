@@ -14,7 +14,6 @@ const QUICK_LINKS = [
   { to: '/admin/sessions', title: 'Live', sub: 'Live charging view' },
   { to: '/admin/completed', title: 'History', sub: 'Completed sessions' },
   { to: '/admin/usage', title: 'Usage', sub: 'Monthly consumption' },
-  { to: '/admin/rfid', title: 'RFID', sub: 'Activate / deactivate' },
   { to: '/admin/bills', title: 'Bills', sub: 'Monthly bill history' },
   { to: '/admin/tariff', title: 'Tariff', sub: 'Rate history per meter' },
   { to: '/admin/tickets', title: 'Support', sub: 'Raise & track issues' },

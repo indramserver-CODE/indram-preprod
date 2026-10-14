@@ -14,7 +14,7 @@ export default function Admins() {
   const [createForm, setCreateForm] = useState({ email: '', password: '', fullName: '' });
 
   const [editTarget, setEditTarget] = useState(null);
-  const [editForm, setEditForm] = useState({ fullName: '', password: '', isActive: true });
+  const [editForm, setEditForm] = useState({ fullName: '', email: '', password: '', isActive: true });
 
   const [removeTarget, setRemoveTarget] = useState(null);
 
@@ -61,15 +61,18 @@ export default function Admins() {
   }
 
   function openEdit(a) {
-    setEditForm({ fullName: a.full_name || '', password: '', isActive: a.is_active });
+    setEditForm({ fullName: a.full_name || '', email: a.email || '', password: '', isActive: a.is_active });
     setEditTarget(a);
   }
 
   async function handleEdit() {
+    const email = editForm.email.trim();
+    if (!email) { showToast('Email is required', 'error'); return; }
     const body = {
       full_name: editForm.fullName.trim() || null,
       is_active: editForm.isActive,
     };
+    if (email.toLowerCase() !== (editTarget.email || '').toLowerCase()) body.email = email;
     if (editForm.password) body.password = editForm.password;
     try {
       await api('PUT', `/api/society-admins/${societyId}/${editTarget.id}`, body);
@@ -192,6 +195,17 @@ export default function Admins() {
         <div className="form-group">
           <label>Full Name</label>
           <input value={editForm.fullName} onChange={e => setEditForm({ ...editForm, fullName: e.target.value })} />
+        </div>
+        <div className="form-group">
+          <label>Email</label>
+          <input
+            type="email"
+            value={editForm.email}
+            onChange={e => setEditForm({ ...editForm, email: e.target.value })}
+          />
+          <small style={{ fontSize: 12, color: '#718096', marginTop: 4, display: 'block' }}>
+            Also their login. Bill and invoice emails go to this address.
+          </small>
         </div>
         <div className="form-group">
           <label>

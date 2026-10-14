@@ -46,14 +46,22 @@ class LateFeeTest(unittest.TestCase):
 class IndramInvoiceTest(unittest.TestCase):
     def test_without_late_fee(self):
         inv = bc.calculate_indram_invoice(D("150.00"))
-        self.assertEqual((inv["late_fee"], inv["cgst"], inv["sgst"], inv["total_payable"]),
-                         (D("0.00"), D("13.50"), D("13.50"), D("177.00")))
+        self.assertEqual((inv["late_fee"], inv["cgst"], inv["sgst"], inv["rounding"], inv["total_payable"]),
+                         (D("0.00"), D("13.50"), D("13.50"), D("0.00"), D("177.00")))
 
     def test_gst_on_charges_plus_late_fee(self):
         inv = bc.calculate_indram_invoice(D("1000.00"), late_fee_pct=D("5"))
         self.assertEqual(inv["late_fee"], D("50.00"))
-        self.assertEqual(inv["cgst"], D("94.50"))                   # 9% of 1050
+        self.assertEqual(inv["cgst"], D("94.50"))                   # 9% of 1000 + 9% of 50
         self.assertEqual(inv["total_payable"], D("1239.00"))
+
+    def test_rounds_to_rupee_like_sample_invoice(self):
+        # INV-000001: 1 kWh x 1.50 → CGST 0.14 + SGST 0.14, rounding 0.22, total 2.00
+        inv = bc.calculate_indram_invoice(D("1.50"))
+        self.assertEqual((inv["cgst"], inv["sgst"], inv["rounding"], inv["total_payable"]),
+                         (D("0.14"), D("0.14"), D("0.22"), D("2.00")))
+        self.assertEqual(bc.calculate_indram_invoice(D("17.00"))["rounding"], D("-0.06"))   # 20.06 → 20.00
+        self.assertEqual(bc.amount_in_words(D("2.00"), "Indian Rupee"), "Indian Rupee Two Only")
 
     def test_numbers(self):
         self.assertEqual(bc.financial_year(date(2026, 10, 14)), "2026-27")

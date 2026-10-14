@@ -59,7 +59,9 @@ body {
   display: flex;
   align-items: center;
   gap: 36px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;            /* lets the nav shrink; links that don't fit move under "More" */
+  height: 100%;
 }
 
 .topbar-logo {
@@ -77,7 +79,60 @@ body {
   align-items: center;
   gap: 10px;
   height: 100%;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+/* Off-screen copy of the links, measured to decide how many fit */
+.nav-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  display: flex;
+  gap: 10px;
+}
+.nav-measure .nav-item { font-weight: 600; }   /* measure at the wider active weight */
+
+.nav-more {
+  position: relative;
+  height: 100%;
+  display: flex;
+}
+
+.nav-more-trigger {
+  background: none;
+  border: none;
+  font-family: inherit;
+}
+
+.nav-more-menu {
+  left: 0;
+  right: auto;
+  min-width: 220px;
+}
+
+.nav-more-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+}
+
+.nav-more-item.active {
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--brand-green);
+}
+
+.nav-more-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .nav-item {
@@ -203,6 +258,10 @@ body {
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   transition: var(--transition-smooth);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-menu-trigger:hover {
@@ -264,6 +323,7 @@ body {
    Now uses the "01 Gradient" brand token instead of flat white/grey. */
 .main {
   flex: 1;
+  min-width: 0;            /* never wider than the window — wide content scrolls inside it */
   padding: 32px;
   overflow-y: auto;
   background: var(--content-bg);
@@ -274,6 +334,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -341,7 +403,8 @@ body {
   border-radius: var(--radius-md);
   box-shadow: var(--content-shadow);
   backdrop-filter: blur(6px);
-  overflow: hidden;
+  overflow-x: auto;        /* wide tables scroll inside the card instead of losing columns */
+  overflow-y: hidden;
   transition: var(--transition-smooth);
 }
 
@@ -549,4 +612,10 @@ select option {
   .topbar-nav::-webkit-scrollbar {
     display: none;
   }
+}
+/* ── Small screens ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .topbar { padding: 0 16px; gap: 16px; }
+  .topbar-left { gap: 16px; }
+  .main { padding: 16px; }
 }

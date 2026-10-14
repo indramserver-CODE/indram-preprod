@@ -19,6 +19,7 @@ class IndramBillSummaryOut(BaseModel):
     late_fee:            Decimal
     cgst:                Decimal
     sgst:                Decimal
+    rounding:            Decimal       # to the nearest rupee
     total_payable:       Decimal
     due_date:            date
     status:              str           # issued | cancelled

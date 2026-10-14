@@ -23,8 +23,10 @@ class FlatOut(BaseModel):
     charger_id:   str | None = None    # joined from chargers table
     meter_id:     int | None = None    # joined from chargers → meters
     meter_label:  str | None = None    # joined from meters.label
-    charger_status: str | None = None  # live status from charger_status table
-    fault_code:   str | None = None
+    charger_status: str | None = None  # chargers.status: charging | available | locked | fault | offline | never_connected
+    fault_code:   str | None = None    # blocking fault (E04, E08, 504)
+    lock_reasons: list[str] = []       # billing | society | tamper
+    last_seen_at: datetime | None = None
     created_at:   datetime
 
     model_config = {"from_attributes": True}

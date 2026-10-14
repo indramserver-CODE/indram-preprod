@@ -3,7 +3,19 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/common/Modal';
 import SocietySelector from '../../components/common/SocietySelector';
+import DeleteAllButton from '../../components/common/DeleteAllButton';
 import CsvUploadPanel from '../../components/common/CsvUploadPanel';
+import { ChargerStatusBadge } from '../../components/common/FaultBadges';
+
+// chargers.status is kept current by the server from the charger's own messages
+const STATUS_COUNTS = [
+  ['charging',        'Charging',        '#1d4ed8'],
+  ['available',       'Available',       '#15803d'],
+  ['locked',          'Locked',          '#d97706'],
+  ['fault',           'Fault',           '#c53030'],
+  ['offline',         'Offline',         '#718096'],
+  ['never_connected', 'Never connected', '#718096'],
+];
 
 const SAMPLE_CSV = 'flat_number,charger_id,meter_number\nA101,EZC001,MH04-12345\nA102,EZC002,MH04-12345\nB201,EZC003,MH04-67890\n';
 
@@ -54,31 +66,15 @@ export default function Chargers() {
   // Build flat_id → flat_number map so we show flat number not raw ID
   const flatMap = Object.fromEntries(flats.map(f => [f.id, f.flat_number]));
 
-  // ── Derive real charger status from is_active + last_seen_at ─────
-  // Four states:
-  //   not_commissioned — never connected (last_seen_at is null)
-  //   online           — is_active and last seen < 5 minutes ago
-  //   offline          — is_active but last seen > 5 minutes ago
-  //   deactivated      — is_active=false (manually disabled)
-  function chargerStatus(c) {
-    // A society-wide command is queued but this charger hasn't confirmed it yet
-    if (c.pending_cmd === 'DEACTIVATE_ALL') return 'deactivating';
-    if (c.pending_cmd === 'ACTIVATE_ALL') return 'activating';
-    if (!c.is_active) return c.still_locked ? 'still_locked' : 'deactivated';
-    if (!c.last_seen_at) return 'not_commissioned';
-    const diffMin = (Date.now() - new Date(c.last_seen_at).getTime()) / 60000;
-    return diffMin < 5 ? 'online' : 'offline';
+  async function setConnection(c, connection_type) {
+    try {
+      const updated = await api('PUT', `/api/chargers/${c.charger_id}`, { connection_type });
+      setChargers(list => list.map(x => (x.charger_id === c.charger_id ? { ...x, ...updated, pending_cmd: x.pending_cmd } : x)));
+      showToast(`${c.charger_id}: ${connection_type === 'mesh' ? 'mesh node — offline after 12 min silent' : 'hub / direct — offline after 75 min silent'}`);
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
   }
-
-  const STATUS_CONFIG = {
-    not_commissioned: { label: 'Not Commissioned', badge: 'badge-amber', dot: '#d97706' },
-    online: { label: 'Online', badge: 'badge-green', dot: '#15803d' },
-    offline: { label: 'Offline', badge: 'badge-red', dot: '#c53030' },
-    deactivated: { label: 'Deactivated', badge: 'badge-gray', dot: '#718096' },
-    deactivating: { label: 'Deactivation pending', badge: 'badge-amber', dot: '#d97706' },
-    activating: { label: 'Activation pending', badge: 'badge-amber', dot: '#d97706' },
-    still_locked: { label: 'Still locked (other reason)', badge: 'badge-red', dot: '#c53030' },
-  };
 
   // Apply meter filter
   const visibleChargers = meterFilter
@@ -125,6 +121,7 @@ export default function Chargers() {
             Manage charger devices — each charger is assigned to a meter and a flat
           </div>
         </div>
+        {societyId && <DeleteAllButton societyId={societyId} scope="chargers" onDone={() => loadData()} />}
       </div>
 
       <SocietySelector value={societyId} onChange={onSocietyChange} />
@@ -217,17 +214,18 @@ export default function Chargers() {
                   <th>Flat No.</th>
                   <th>FW Version</th>
                   <th>Status</th>
+                  <th>Connection</th>
                   <th>Last Seen</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr className="empty-row">
-                    <td colSpan={6}>Loading…</td>
+                    <td colSpan={7}>Loading…</td>
                   </tr>
                 ) : visibleChargers.length === 0 ? (
                   <tr className="empty-row">
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       {chargers.length === 0
                         ? 'No chargers yet — upload a CSV to get started'
                         : 'No chargers match the selected filter'}
@@ -267,15 +265,16 @@ export default function Chargers() {
                         </td>
                         <td style={{ color: '#4a5568' }}>{c.fw_version || '—'}</td>
                         <td>
-                          {(() => {
-                            const s = chargerStatus(c);
-                            const cfg = STATUS_CONFIG[s];
-                            return (
-                              <span className={`badge ${cfg.badge}`}>
-                                {cfg.label}
-                              </span>
-                            );
-                          })()}
+                          <ChargerStatusBadge status={c.status} faultCode={c.fault_code} lockReasons={c.lock_reasons}
+                                              pendingCmd={c.pending_cmd} lastSeenAt={c.last_seen_at} />
+                        </td>
+                        <td>
+                          <select value={c.connection_type} onChange={e => setConnection(c, e.target.value)}
+                                  style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}
+                                  title="Mesh nodes never get an offline message, so they are marked offline after 12 min without contact">
+                            <option value="hub">Hub / direct</option>
+                            <option value="mesh">Mesh node</option>
+                          </select>
                         </td>
                         <td style={{ fontSize: 13, color: '#4a5568' }}>
                           {c.last_seen_at
@@ -304,18 +303,12 @@ export default function Chargers() {
                 {meterFilter && (
                   <span>Showing: <strong>{visibleChargers.length}</strong> in selected meter</span>
                 )}
-                <span style={{ color: '#15803d' }}>
-                  Online: <strong>{chargers.filter(c => chargerStatus(c) === 'online').length}</strong>
-                </span>
-                <span style={{ color: '#d97706' }}>
-                  Not Commissioned: <strong>{chargers.filter(c => chargerStatus(c) === 'not_commissioned').length}</strong>
-                </span>
-                <span style={{ color: '#c53030' }}>
-                  Offline: <strong>{chargers.filter(c => chargerStatus(c) === 'offline').length}</strong>
-                </span>
-                <span style={{ color: '#718096' }}>
-                  Deactivated: <strong>{chargers.filter(c => chargerStatus(c) === 'deactivated').length}</strong>
-                </span>
+                {STATUS_COUNTS.map(([key, label, color]) => {
+                  const n = chargers.filter(c => c.status === key).length;
+                  return n > 0 && (
+                    <span key={key} style={{ color }}>{label}: <strong>{n}</strong></span>
+                  );
+                })}
               </div>
             )}
           </div>

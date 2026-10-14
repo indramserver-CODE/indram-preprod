@@ -47,6 +47,8 @@ import asyncpg
 import aiomqtt
 
 from app.config import settings
+from app.db import TRANSIENT_DB_ERRORS
+from app.services.charger_state import KEEP, record_message, mark_offline
 
 logger = logging.getLogger(__name__)
 
@@ -106,19 +108,6 @@ def _coerce_fault_code(raw) -> str | None:
     return str(raw)
 
 
-async def _update_charger_last_seen(conn: asyncpg.Connection,
-                                    charger_id: str, fw_version: str | None):
-    await conn.execute(
-        """
-        UPDATE chargers
-        SET    last_seen_at = $1,
-               fw_version   = COALESCE($2, fw_version)
-        WHERE  charger_id = $3
-        """,
-        _now(), fw_version, charger_id,
-    )
-
-
 async def _log_orphan(conn: asyncpg.Connection, charger_id: str,
                       session_id: int | None, event: str, payload: dict):
     await conn.execute(
@@ -158,7 +147,7 @@ async def handle_charging_started(conn: asyncpg.Connection, payload: dict):
     device_dt     = _parse_device_datetime(payload.get("datetime"))
     started_at    = _epoch_to_dt(start_epoch) or device_dt or _now()
 
-    await _update_charger_last_seen(conn, charger_id, fw_version)
+    await record_message(conn, charger_id, payload, activity="charging")
 
     # ── session_resumed: power cut recovery ───────────────────────
     # Do NOT create a new session. Update the existing one by session_id.
@@ -309,7 +298,12 @@ async def handle_charging_ended(conn: asyncpg.Connection, payload: dict, status:
             total_kwhr, charger_id, session_id,
         )
 
-    await _update_charger_last_seen(conn, charger_id, fw_version)
+    if status == "charging_ended_error":
+        await record_message(conn, charger_id, payload, activity="idle", fault=fault_code)
+    elif status == "charging_stopped_by_admin":
+        await record_message(conn, charger_id, payload, activity="idle", locked=True)
+    else:
+        await record_message(conn, charger_id, payload, activity="idle")
 
     session = await conn.fetchrow(
         "SELECT session_id FROM charging_sessions WHERE session_id = $1 AND charger_id = $2",
@@ -524,18 +518,21 @@ async def _retry_bulk_commands(conn: asyncpg.Connection, charger_id: str, payloa
 
 async def handle_heartbeat(conn: asyncpg.Connection, payload: dict):
     """
-    Heartbeat is QoS 0 — lightweight keep-alive only.
-    No session_id in heartbeat payloads. Only updates last_seen.
-    status values: "available" | "charging" | "fault"
-    If no heartbeat for >3 minutes, charger is likely offline.
+    Keep-alive: every 60 min (hub / direct charger), every 5 min (mesh node).
+    status: available | charging | fault · fault_code: E09 locked, E08 too hot, E04 meter, null
+    locked + lock_reasons (billing / society / tamper).
     """
     charger_id     = payload["charger_id"]
     charger_status = payload.get("status")   # "available" | "charging" | "fault"
     fault_code     = _coerce_fault_code(payload.get("fault_code"))
     temperature_c  = payload.get("temperature_c")
-    fw_version     = payload.get("fw_version")
 
-    await _update_charger_last_seen(conn, charger_id, fw_version)
+    await record_message(
+        conn, charger_id, payload,
+        activity="charging" if charger_status == "charging" else "idle",
+        fault=fault_code,   # E09 is a lock, not a fault — record_message keeps only blocking faults
+        locked=payload.get("locked", KEEP), lock_reasons=payload.get("lock_reasons", KEEP),
+    )
     await _retry_bulk_commands(conn, charger_id, payload)
 
     logger.debug(
@@ -559,14 +556,19 @@ async def handle_status(conn: asyncpg.Connection, payload: dict):
     duration_min   = payload.get("duration_min")
     fault_code     = _coerce_fault_code(payload.get("fault_code"))
     temperature_c  = payload.get("temperature_c")
-    fw_version     = payload.get("fw_version")
     device_dt      = _parse_device_datetime(payload.get("datetime"))
 
     if not charger_id:
         logger.warning("Status message missing charger_id — skipping")
         return
 
-    await _update_charger_last_seen(conn, charger_id, fw_version)
+    # charger_status: active | idle | fault · fault_code: 200/0 normal, 504 meter stopped, 505 meter back
+    await record_message(
+        conn, charger_id, payload,
+        activity={"active": "charging", "idle": "idle"}.get(charger_status, KEEP),
+        fault="504" if fault_code == "504" else KEEP,
+        clear_faults=("504", "E04") if fault_code in ("505", "200", "0", None) else (),
+    )
 
     await conn.execute(
         """
@@ -587,8 +589,9 @@ async def handle_status(conn: asyncpg.Connection, payload: dict):
         charger_id, charger_status, voltage, current, energy_kwh,
         rfid_uid, duration_min, fault_code, _now(),
     )
-    # Idle chargers don't heartbeat — status is their periodic sign of life
-    await _retry_bulk_commands(conn, charger_id, payload)
+    # A retained replay is the broker's old copy — the charger may not be reachable
+    if not payload.get("_retained"):
+        await _retry_bulk_commands(conn, charger_id, payload)
     logger.debug(
         "status | charger=%s status=%s voltage=%s current=%s energy_kwh=%s temp=%s",
         charger_id, charger_status, voltage, current, energy_kwh, temperature_c,
@@ -605,9 +608,14 @@ async def handle_online(conn: asyncpg.Connection, payload: dict):
         logger.warning("Online message missing charger_id — skipping")
         return
 
-    await _update_charger_last_seen(conn, charger_id, payload.get("fw_version"))
+    await record_message(
+        conn, charger_id, payload,
+        locked=payload.get("locked", KEEP), lock_reasons=payload.get("lock_reasons", KEEP),
+        reset_reason=payload.get("reset_reason"),
+    )
     await _retry_bulk_commands(conn, charger_id, payload)
-    logger.info("charger online | charger=%s fw=%s", charger_id, payload.get("fw_version"))
+    logger.info("charger online | charger=%s fw=%s reset=%s", charger_id,
+                payload.get("fw_version"), payload.get("reset_reason"))
 
 
 async def handle_cmd_ack(conn: asyncpg.Connection, payload: dict):
@@ -639,6 +647,8 @@ async def handle_cmd_ack(conn: asyncpg.Connection, payload: dict):
         """,
         charger_id, cmd, ok, reason, fw_version, now,
     )
+
+    await _record_cmd_lock(conn, charger_id, payload, cmd, ok, reason)
 
     # Skip ADDUID — handled separately in handle_uid_ack
     if cmd == "ADDUID":
@@ -711,6 +721,24 @@ async def handle_cmd_ack(conn: asyncpg.Connection, payload: dict):
     # Apply actual DB state change if command succeeded
     if ok:
         await _apply_cmd_state(conn, charger_id, cmd, flat_id)
+
+
+LOCK_FOR_CMD = {"DEACTIVATE": "billing", "DEACTIVATE_ALL": "society"}
+UNLOCK_FOR_CMD = {"ACTIVE": "billing", "ACTIVATE_ALL": "society"}
+
+
+async def _record_cmd_lock(conn: asyncpg.Connection, charger_id: str, payload: dict,
+                           cmd: str | None, ok, reason: str | None):
+    """A confirmed (de)activate changes the charger's lock; any ack counts as contact."""
+    if ok and cmd in LOCK_FOR_CMD:
+        await record_message(conn, charger_id, payload, activity="idle", add_reason=LOCK_FOR_CMD[cmd])
+    elif ok and cmd in UNLOCK_FOR_CMD:
+        if reason == "still_locked":   # another lock (e.g. tamper) keeps it off
+            await record_message(conn, charger_id, payload, remove_reason=UNLOCK_FOR_CMD[cmd], locked=True)
+        else:
+            await record_message(conn, charger_id, payload, remove_reason=UNLOCK_FOR_CMD[cmd])
+    else:
+        await record_message(conn, charger_id, payload)
 
 
 async def _apply_cmd_state(conn: asyncpg.Connection, charger_id: str,
@@ -831,6 +859,8 @@ async def handle_uid_ack(conn: asyncpg.Connection, payload: dict):
     now             = _now()
     success         = event == "uid_added"
 
+    await record_message(conn, charger_id, payload)
+
     if event in ("uid_removed", "uid_remove_failed"):
         await _handle_deluid_ack(conn, payload)
         return
@@ -922,6 +952,13 @@ async def handle_offline(conn: asyncpg.Connection, payload: dict):
     if not charger_id:
         logger.warning("Offline LWT missing charger_id — skipping")
         return
+    if payload.get("_retained"):
+        # Replayed on (re)subscribe — it may predate the charger coming back online.
+        # The silent-charger sweep marks it offline if it really is gone.
+        logger.debug("Retained offline replay ignored | charger=%s", charger_id)
+        return
+
+    await mark_offline(conn, charger_id)
 
     await conn.execute(
         """
@@ -983,7 +1020,7 @@ ACK_HANDLER_MAP = {
 }
 
 
-async def process_message(pool: asyncpg.Pool, topic: str, raw_payload: bytes):
+async def process_message(pool: asyncpg.Pool, topic: str, raw_payload: bytes, retained: bool = False):
     # New topic structure: indram/{society_id}/{meter_id}/{charger_id}/{direction}/{event}
     # e.g. indram/2/4/EZC001/evt/charging_started
     parts = topic.split("/")
@@ -993,22 +1030,19 @@ async def process_message(pool: asyncpg.Pool, topic: str, raw_payload: bytes):
 
     direction  = parts[4]   # "evt" or "ack"
     event      = parts[5]   # charging_started, heartbeat, cmd_ack, etc.
-    charger_id = parts[3]   # extracted from topic for fallback use
 
-    # Handle empty payload — firmware LWT may have no body
+    # Empty payload = a retained message being cleared (firmware 6.5.3's offline always has a body)
     if not raw_payload or not raw_payload.strip():
-        if event == "offline":
-            # Build minimal payload from topic parts so handle_offline can run
-            payload = {"charger_id": charger_id, "event": "offline"}
-        else:
-            logger.error("Empty payload on non-offline topic: %s", topic)
-            return
+        logger.debug("Empty payload ignored | topic=%s", topic)
+        return
     else:
         try:
             payload: dict = json.loads(raw_payload.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.error("Failed to decode MQTT payload | topic=%s error=%s", topic, e)
             return
+
+    payload["_retained"] = retained   # broker replay of a retained message, not live contact
 
     if direction == "evt":
         handler     = EVT_HANDLER_MAP.get(event)
@@ -1032,15 +1066,81 @@ async def process_message(pool: asyncpg.Pool, topic: str, raw_payload: bytes):
         logger.warning("No handler for %s/%s | topic=%s", direction, event, topic)
         return
 
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=DB_ACQUIRE_TIMEOUT_S) as conn:
         async with conn.transaction():
             try:
                 await handler(conn, payload)
+            except TRANSIENT_DB_ERRORS:
+                raise   # retried by _process_reliably
             except Exception as e:
                 logger.exception(
                     "Error handling %s/%s | topic=%s | %s", direction, event, topic, e
                 )
                 raise
+
+
+# ── Reliable processing ───────────────────────────────────────────────
+# After a crash or a database blip the broker delivers a backlog all at once
+# (clean_session=False). Each message is retried while the database is unreachable,
+# at most MAX_CONCURRENT run at once (≈ the pool size), and one charger's messages
+# are handled one at a time in arrival order — a retried START never lands after
+# its END. Every handler is idempotent (msg_id / status guards), so a retry is safe.
+
+MAX_CONCURRENT       = 8
+DB_ACQUIRE_TIMEOUT_S = 10
+RETRY_DELAYS_S       = (1, 2, 4, 8, 16)
+
+
+_slots: asyncio.Semaphore | None = None
+_charger_locks: dict[str, asyncio.Lock] = {}
+_in_flight: set[asyncio.Task] = set()
+
+
+def _charger_lock(topic: str) -> asyncio.Lock:
+    parts = topic.split("/")
+    key = parts[3] if len(parts) > 3 else topic
+    if key not in _charger_locks:
+        _charger_locks[key] = asyncio.Lock()
+    return _charger_locks[key]
+
+
+def _describe(raw_payload: bytes) -> str:
+    try:
+        return json.loads(raw_payload).get("msg_id") or ""
+    except Exception:
+        return ""
+
+
+async def _process_reliably(pool: asyncpg.Pool, topic: str, raw_payload: bytes, retained: bool):
+    global _slots
+    if _slots is None:
+        _slots = asyncio.Semaphore(MAX_CONCURRENT)
+    async with _charger_lock(topic), _slots:
+        for attempt in range(len(RETRY_DELAYS_S) + 1):
+            try:
+                await process_message(pool, topic, raw_payload, retained)
+                if attempt:
+                    logger.info("Processed after %s retr%s | topic=%s", attempt, "y" if attempt == 1 else "ies", topic)
+                return
+            except TRANSIENT_DB_ERRORS as e:
+                if attempt == len(RETRY_DELAYS_S):
+                    logger.error("Message DROPPED — database unreachable after %s attempts | topic=%s msg_id=%s | %s: %s",
+                                 attempt + 1, topic, _describe(raw_payload), type(e).__name__, e)
+                    return
+                delay = RETRY_DELAYS_S[attempt]
+                logger.warning("Database unreachable — retrying in %ss | topic=%s | %s",
+                               delay, topic, type(e).__name__)
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return   # a bug or bad payload — already logged with its traceback; retrying won't help
+
+
+def _spawn_message(pool: asyncpg.Pool, topic: str, raw_payload: bytes, retained: bool):
+    task = asyncio.create_task(_process_reliably(pool, topic, raw_payload, retained))
+    _in_flight.add(task)
+    task.add_done_callback(_in_flight.discard)
 
 
 # ------------------------------------------------------------------ #
@@ -1074,9 +1174,7 @@ async def run_mqtt_subscriber(pool: asyncpg.Pool):
                 backoff = 5
 
                 async for message in client.messages:
-                    asyncio.create_task(
-                        process_message(pool, str(message.topic), message.payload)
-                    )
+                    _spawn_message(pool, str(message.topic), message.payload, bool(message.retain))
 
         except aiomqtt.MqttError as e:
             logger.error("MQTT connection lost: %s — reconnecting in %ss", e, backoff)

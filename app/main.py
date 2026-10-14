@@ -93,10 +93,12 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Billing scheduler disabled on this instance (ENABLE_SCHEDULER != true)")
 
-    mqtt_task = None
+    mqtt_task = sweep_task = None
     if settings.ENABLE_MQTT:
         from app.mqtt_subscriber import run_mqtt_subscriber
-        mqtt_task = asyncio.create_task(run_mqtt_subscriber(pool))
+        from app.services.charger_state import run_silent_sweeper
+        mqtt_task  = asyncio.create_task(run_mqtt_subscriber(pool))
+        sweep_task = asyncio.create_task(run_silent_sweeper(pool))   # marks silent chargers offline
         logger.info("MQTT subscriber started")
     else:
         logger.info("MQTT subscriber disabled on this instance (ENABLE_MQTT != true)")
@@ -108,12 +110,13 @@ async def lifespan(app: FastAPI):
         from app.services.scheduler import stop_scheduler
         stop_scheduler()
 
-    if mqtt_task:
-        mqtt_task.cancel()
-        try:
-            await mqtt_task
-        except asyncio.CancelledError:
-            pass
+    for task in (mqtt_task, sweep_task):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     await close_pool()
     logger.info("Shutdown complete")
@@ -148,20 +151,20 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────
-from app.routers import auth, societies, flats, chargers, admin_users, sessions, usage, billing, notifications, society_settings
+from app.routers import auth, societies, flats, chargers, admin_users, sessions, usage, billing, notifications, society_settings, bulk_delete
 from app.routers.meters import super_router as meters_super_router, society_router as meters_society_router
-from app.routers.rfid import super_router as rfid_super_router, society_router as rfid_society_router
+from app.routers.rfid import super_router as rfid_super_router   # RFID is super admin only (no /api/sa/rfid)
 from app.routers.analytics import router_society as analytics_society_router, router_admin as analytics_admin_router
 from app.routers.indram_bills import super_router as indram_super_router, society_router as indram_society_router
 
 app.include_router(auth.router,              prefix="/api/auth",             tags=["Auth"])
 app.include_router(admin_users.router,       prefix="/api/society-admins",   tags=["Admin Users"])
 app.include_router(societies.router,         prefix="/api/societies",         tags=["Societies"])
+app.include_router(bulk_delete.router,       prefix="/api/societies",         tags=["Delete all"])
 app.include_router(flats.router,             prefix="/api/societies",         tags=["Flats"])
 app.include_router(meters_super_router,      prefix="/api/meters",            tags=["Meters"])
 app.include_router(chargers.router,          prefix="/api/chargers",          tags=["Chargers"])
 app.include_router(rfid_super_router,        prefix="/api/rfid",              tags=["RFID"])
-app.include_router(rfid_society_router,      prefix="/api/sa/rfid",           tags=["SA RFID"])
 app.include_router(flats.router,             prefix="/api/sa",                tags=["SA Flats"])
 app.include_router(meters_society_router,    prefix="/api/sa/meters",         tags=["SA Meters"])
 app.include_router(sessions.router,          prefix="/api/sessions",          tags=["Sessions"])

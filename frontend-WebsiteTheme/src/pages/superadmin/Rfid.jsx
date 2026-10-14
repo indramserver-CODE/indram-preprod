@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/common/Modal';
 import SocietySelector from '../../components/common/SocietySelector';
+import DeleteAllButton from '../../components/common/DeleteAllButton';
 import CsvUploadPanel from '../../components/common/CsvUploadPanel';
 
 // Two UIDs per row — uid2 and label2 are optional
@@ -317,9 +318,12 @@ export default function Rfid() {
           </div>
         </div>
         {societyId && (
-          <button className="btn btn-secondary" onClick={() => loadData()}>
-            🔄 Refresh
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={() => loadData()}>
+              🔄 Refresh
+            </button>
+            <DeleteAllButton societyId={societyId} scope="rfid" onDone={() => loadData()} />
+          </div>
         )}
       </div>
 

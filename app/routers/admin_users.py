@@ -5,13 +5,13 @@ Super admin only. Nested under societies.
 
 GET    /api/societies/{society_id}/admins              — list admins of a society
 POST   /api/societies/{society_id}/admins              — create admin for this society
-PUT    /api/societies/{society_id}/admins/{user_id}    — update admin (name/password/active)
+PUT    /api/societies/{society_id}/admins/{user_id}    — update admin (name/email/password/active)
 DELETE /api/societies/{society_id}/admins/{user_id}    — remove admin from society (keeps account)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
@@ -31,6 +31,7 @@ class AdminCreate(BaseModel):
 
 class AdminUpdate(BaseModel):
     full_name: str | None = None
+    email:     EmailStr | None = None   # also their login
     password:  str | None = None
     is_active: bool | None = None
 
@@ -108,6 +109,11 @@ async def update_society_admin(
     if not user:
         raise HTTPException(status_code=404, detail="Admin not found in this society")
 
+    if body.email is not None and body.email.lower() != user.email.lower():
+        taken = await db.scalar(select(User.id).where(func.lower(User.email) == body.email.lower(), User.id != user.id))
+        if taken:
+            raise HTTPException(status_code=409, detail="Another account already uses this email")
+        user.email = body.email
     if body.full_name is not None:
         user.full_name = body.full_name
     if body.is_active is not None:

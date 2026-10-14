@@ -13,18 +13,22 @@ Amounts are printed as "Rs." — the built-in PDF fonts have no ₹ glyph.
 import io
 from datetime import date
 from decimal import Decimal
+from html import escape
+from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image, KeepTogether,
 )
 
-from app.services.billing_calc import amount_in_words, GST_HALF_RATE, IST
+from app.services.billing_calc import amount_in_words, GST_HALF_RATE, IST, round2
 
 _PRIMARY  = colors.HexColor("#1a3c5e")
 _ACCENT   = colors.HexColor("#4f86f7")
@@ -52,6 +56,11 @@ _S = {
 
 def rs(amount) -> str:
     """Rs. 12,34,567.50 — Indian digit grouping."""
+    return f"Rs. {_indian(amount)}" if Decimal(str(amount)) >= 0 else f"-Rs. {_indian(-Decimal(str(amount)))}"
+
+
+def _indian(amount) -> str:
+    """12,34,567.50 — Indian digit grouping, no currency."""
     amount = Decimal(str(amount)).quantize(Decimal("0.01"))
     sign, amount = ("-", -amount) if amount < 0 else ("", amount)
     whole, frac = f"{amount:.2f}".split(".")
@@ -64,7 +73,7 @@ def rs(amount) -> str:
         if head:
             groups.insert(0, head)
         whole = ",".join(groups + [tail])
-    return f"{sign}Rs. {whole}.{frac}"
+    return f"{sign}{whole}.{frac}"
 
 
 def _kwh(units) -> str:
@@ -337,52 +346,202 @@ def generate_society_bill_pdf(kind: str, society: dict, bill: dict, flats: list[
 
 
 # ── 3. Indram GST tax invoice ─────────────────────────────────────────
+# Laid out like Indram's own invoices (INV-000001): bordered page, company header, invoice
+# details + place of supply, Bill To, HSN/SAC line items with CGST/SGST per line, totals
+# rounded to the rupee, total in words, notes, authorized signature. DejaVu Sans for the ₹ sign.
+
+_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+pdfmetrics.registerFont(TTFont("DejaVu", str(_FONT_DIR / "DejaVuSans.ttf")))
+pdfmetrics.registerFont(TTFont("DejaVu-Bold", str(_FONT_DIR / "DejaVuSans-Bold.ttf")))
+
+_INV_W    = 180 * mm
+_INV_LINE = colors.HexColor("#9ca3af")
+_INV_HEAD = colors.HexColor("#f3f4f6")
+
+GST_STATES = {
+    "01": "Jammu and Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+    "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan", "09": "Uttar Pradesh",
+    "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur",
+    "15": "Mizoram", "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+    "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+    "26": "Dadra and Nagar Haveli and Daman and Diu", "27": "Maharashtra", "29": "Karnataka", "30": "Goa",
+    "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu", "34": "Puducherry",
+    "35": "Andaman and Nicobar Islands", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+}
+
+
+def _ps(name, size=8.5, bold=False, align=TA_LEFT, color=colors.black, leading=None):
+    return ParagraphStyle(name, fontName="DejaVu-Bold" if bold else "DejaVu", fontSize=size,
+                          leading=leading or size * 1.3, alignment=align, textColor=color)
+
+
+_I = {
+    "company": _ps("i-company", 13, bold=True, leading=16),
+    "small":   _ps("i-small", 7.5, leading=9.5),
+    "title":   _ps("i-title", 22, align=TA_RIGHT, leading=26),
+    "label":   _ps("i-label", 8),
+    "value":   _ps("i-value", 8, bold=True),
+    "th":      _ps("i-th", 7.5, bold=True),
+    "th_r":    _ps("i-th-r", 7.5, bold=True, align=TA_RIGHT),
+    "th_c":    _ps("i-th-c", 7.5, bold=True, align=TA_CENTER),
+    "td":      _ps("i-td", 7.5),
+    "td_r":    _ps("i-td-r", 7.5, align=TA_RIGHT),
+    "td_sub":  _ps("i-td-sub", 6.5, color=colors.HexColor("#6b7280")),
+    "billto":  _ps("i-billto", 9.5, bold=True),
+    "tot_l":   _ps("i-tot-l", 8, align=TA_RIGHT),
+    "tot_r":   _ps("i-tot-r", 8, align=TA_RIGHT),
+    "big_l":   _ps("i-big-l", 9, bold=True, align=TA_RIGHT),
+    "big_r":   _ps("i-big-r", 9, bold=True, align=TA_RIGHT),
+    "words":   _ps("i-words", 8, bold=True),
+    "sign":    _ps("i-sign", 8, align=TA_CENTER),
+}
+
+
+def _n(amount) -> str:
+    return _indian(amount)
+
+
+def _qty(units) -> str:
+    u = Decimal(str(units))
+    return f"{u:.2f}" if u == u.quantize(Decimal("0.01")) else f"{u:.3f}"
+
+
+def _dmy(d: date | None) -> str:
+    return d.strftime("%d/%m/%Y") if d else ""
+
+
+def place_of_supply(society_gstin: str | None, default_code: str) -> str:
+    code = society_gstin[:2] if society_gstin and society_gstin[:2].isdigit() else default_code
+    return f"{GST_STATES.get(code, '')} ({code})".strip()
+
 
 def generate_indram_invoice_pdf(indram: dict, society: dict, invoice: dict) -> bytes:
     """
-    indram  — legal_name, address, gstin
+    indram  — legal_name, address (\\n-separated lines), gstin, phone, email, state_code, item, sac, notes
     society — name, address, gstin
     invoice — invoice_number, issued_on, period_from, period_till, due_date, meter_label,
               total_units, indram_rate, total_indram_amount, late_fee, late_fee_pct,
-              cgst, sgst, total_payable, replaces_number (optional)
+              cgst, sgst, rounding, total_payable, payment_status, replaces_number (optional)
     """
     buffer = io.BytesIO()
-    el = [Paragraph(indram["legal_name"], _S["title"])]
-    if indram.get("address"):
-        el.append(Paragraph(indram["address"], _S["sub"]))
-    if indram.get("gstin"):
-        el.append(Paragraph(f"GSTIN: {indram['gstin']}", _S["sub"]))
-    el += [Spacer(1, 3*mm), HRFlowable(width="100%", thickness=1.5, color=_GREEN), Spacer(1, 3*mm),
-           Paragraph("TAX INVOICE", _S["title"]), Spacer(1, 3*mm)]
+    line = _INV_LINE
 
-    el.append(_info_grid([
-        ("Invoice No.",   invoice["invoice_number"]),
-        ("Invoice date",  _d(invoice["issued_on"])),
-        ("Due date",      _d(invoice["due_date"])),
-        ("Billed to",     society["name"]),
-        ("Society GSTIN", society.get("gstin") or "—"),
-        ("Service period", _period(invoice["period_from"], invoice["period_till"])),
+    # Header: company block + TAX INVOICE
+    company = [Paragraph(escape(indram["legal_name"]), _I["company"])]
+    for text in [*filter(None, (indram.get("address") or "").split("\n")),
+                 f"GSTIN {indram['gstin']}" if indram.get("gstin") else None,
+                 indram.get("phone"), indram.get("email")]:
+        if text:
+            company.append(Paragraph(escape(text), _I["small"]))
+    header = Table([[company, Paragraph("TAX INVOICE", _I["title"])]], colWidths=[_INV_W * 0.6, _INV_W * 0.4])
+    header.setStyle(TableStyle([("VALIGN", (0, 0), (0, 0), "TOP"), ("VALIGN", (1, 0), (1, 0), "BOTTOM"),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                                ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("LINEBELOW", (0, 0), (-1, 0), 0.75, line)]))
+
+    # Invoice details | place of supply
+    def kv(rows):
+        t = Table([[Paragraph(k, _I["label"]), Paragraph(f": {escape(v)}", _I["value"])] for k, v in rows],
+                  colWidths=[_INV_W * 0.22, _INV_W * 0.28])
+        t.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 0.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 0.5),
+                               ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        return t
+    details = Table([[
+        kv([("#", invoice["invoice_number"]), ("Invoice Date", _dmy(invoice["issued_on"])),
+            ("Terms", f"Due by {_dmy(invoice['due_date'])}"), ("Due Date", _dmy(invoice["due_date"])),
+            ("Service Period", f"{_dmy(invoice['period_from'])} – {_dmy(invoice['period_till'])}")]),
+        kv([("Place Of Supply", place_of_supply(society.get("gstin"), indram.get("state_code", "27")))]),
+    ]], colWidths=[_INV_W / 2, _INV_W / 2])
+    details.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEAFTER", (0, 0), (0, 0), 0.75, line),
+                                 ("LEFTPADDING", (0, 0), (-1, -1), 6), ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("LINEBELOW", (0, 0), (-1, 0), 0.75, line)]))
+
+    # Bill To
+    bill_to = [Paragraph(escape(society["name"]), _I["billto"])]
+    for text in [*filter(None, (society.get("address") or "").split("\n")),
+                 f"GSTIN {society['gstin']}" if society.get("gstin") else None]:
+        if text:
+            bill_to.append(Paragraph(escape(text), _I["small"]))
+    billto = Table([[Paragraph("Bill To", _I["th"])], [bill_to]], colWidths=[_INV_W])
+    billto.setStyle(TableStyle([("BACKGROUND", (0, 0), (0, 0), _INV_HEAD), ("LINEBELOW", (0, 0), (0, 0), 0.75, line),
+                                ("LINEBELOW", (0, 1), (0, 1), 0.75, line), ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
+
+    # Line items: the service, then the late fee once flagged
+    charges = Decimal(str(invoice["total_indram_amount"]))
+    late    = Decimal(str(invoice.get("late_fee") or 0))
+    lines   = [(Paragraph(escape(indram.get("item") or "Charger Maintenance"), _I["td"]),
+                Paragraph(escape(f"{invoice.get('meter_label') or ''} · units in kWh"), _I["td_sub"]),
+                _qty(invoice["total_units"]), _n(invoice["indram_rate"]), charges)]
+    if late > 0:
+        lines.append((Paragraph(f"Late fee ({Decimal(str(invoice['late_fee_pct'])).normalize()}% of charges)", _I["td"]),
+                      None, "1.00", _n(late), late))
+    rows = [
+        [Paragraph("#", _I["th_c"]), Paragraph("Item &amp; Description", _I["th"]), Paragraph("HSN<br/>/SAC", _I["th"]),
+         Paragraph("Qty", _I["th_r"]), Paragraph("Rate", _I["th_r"]), Paragraph("CGST", _I["th_c"]), "",
+         Paragraph("SGST", _I["th_c"]), "", Paragraph("Amount", _I["th_r"])],
+        ["", "", "", "", "", Paragraph("%", _I["th_r"]), Paragraph("Amt", _I["th_r"]),
+         Paragraph("%", _I["th_r"]), Paragraph("Amt", _I["th_r"]), ""],
+    ]
+    for i, (name, sub, qty, rate, amount) in enumerate(lines, start=1):
+        half = round2(amount * GST_HALF_RATE)
+        rows.append([Paragraph(str(i), _I["th_c"].clone("c", fontName="DejaVu")), [name, sub] if sub else name,
+                     Paragraph(escape(indram.get("sac") or ""), _I["td"]), Paragraph(qty, _I["td_r"]),
+                     Paragraph(rate, _I["td_r"]), Paragraph("9%", _I["td_r"]), Paragraph(_n(half), _I["td_r"]),
+                     Paragraph("9%", _I["td_r"]), Paragraph(_n(half), _I["td_r"]), Paragraph(_n(amount), _I["td_r"])])
+    widths = [m * mm for m in (8, 50, 17, 16, 17, 11, 15, 11, 15, 20)]
+    items = Table(rows, colWidths=widths, repeatRows=2)
+    items.setStyle(TableStyle([
+        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)), ("SPAN", (3, 0), (3, 1)),
+        ("SPAN", (4, 0), (4, 1)), ("SPAN", (5, 0), (6, 0)), ("SPAN", (7, 0), (8, 0)), ("SPAN", (9, 0), (9, 1)),
+        ("BACKGROUND", (0, 0), (-1, 1), _INV_HEAD), ("VALIGN", (0, 0), (-1, 1), "BOTTOM"),
+        ("VALIGN", (0, 2), (-1, -1), "TOP"),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, line), ("LINEBELOW", (0, -1), (-1, -1), 0.75, line),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    if society.get("address"):
-        el.append(Paragraph(society["address"], _S["label"]))
-    if invoice.get("replaces_number"):
-        el.append(Paragraph(f"This invoice replaces invoice no. {invoice['replaces_number']}, which is cancelled.",
-                            _S["body"]))
-    el.append(Spacer(1, 5*mm))
 
-    rows = [["Description", "Units (kWh)", "Rate", "Amount"],
-            [f"EV charging platform service — {invoice.get('meter_label') or 'meter'}",
-             _kwh(invoice["total_units"]), rs(invoice["indram_rate"]), rs(invoice["total_indram_amount"])]]
-    if Decimal(str(invoice.get("late_fee") or 0)) > 0:
-        rows.append([f"Late fee ({invoice['late_fee_pct']}%)", "", "", rs(invoice["late_fee"])])
-    taxable = Decimal(str(invoice["total_indram_amount"])) + Decimal(str(invoice.get("late_fee") or 0))
-    rows += [["Taxable value", "", "", rs(taxable)],
-             ["CGST 9%", "", "", rs(invoice["cgst"])],
-             ["SGST 9%", "", "", rs(invoice["sgst"])]]
-    el.append(_table(rows, [80*mm, 28*mm, 27*mm, 35*mm], right_cols=(1, 2, 3)))
-    el += [Spacer(1, 2*mm), _total_bar("TOTAL PAYABLE TO INDRAM", invoice["total_payable"], _GREEN),
-           Paragraph(amount_in_words(Decimal(str(invoice["total_payable"]))), _S["body"])]
-    _build(buffer, el, "Computer-generated tax invoice.")
+    # Totals | words + notes, then the signature box under the totals
+    total    = Decimal(str(invoice["total_payable"]))
+    rounding = Decimal(str(invoice.get("rounding") or 0))
+    balance  = Decimal("0") if invoice.get("payment_status") == "paid" else total
+    sums = [("Sub Total", _n(charges + late), "tot"), ("CGST9 (9%)", _n(invoice["cgst"]), "tot"),
+            ("SGST9 (9%)", _n(invoice["sgst"]), "tot")]
+    if rounding:
+        sums.append(("Rounding", _n(rounding), "tot"))
+    sums += [("Total", f"₹{_n(total)}", "big"), ("Balance Due", f"₹{_n(balance)}", "big")]
+    totals = Table([[Paragraph(k, _I[f"{s}_l"]), Paragraph(v, _I[f"{s}_r"])] for k, v, s in sums],
+                   colWidths=[_INV_W * 0.3, _INV_W * 0.2 - 12])
+    totals.setStyle(TableStyle([("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("LINEABOVE", (0, -2), (-1, -2), 0.5, line)]))
+    notes = [Paragraph("Total In Words", _I["label"]),
+             Paragraph(escape(amount_in_words(total, "Indian Rupee")), _I["words"]), Spacer(1, 4 * mm),
+             Paragraph("Notes", _I["label"]), Paragraph(escape(indram.get("notes") or ""), _I["td"])]
+    if invoice.get("replaces_number"):
+        notes.append(Paragraph(escape(f"This invoice replaces cancelled invoice no. {invoice['replaces_number']}."), _I["td"]))
+    summary = Table([[notes, totals], ["", Paragraph("Authorized Signature", _I["sign"])]],
+                    colWidths=[_INV_W / 2, _INV_W / 2], rowHeights=[None, 30 * mm])
+    summary.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, 0), "TOP"), ("VALIGN", (1, 1), (1, 1), "BOTTOM"),
+        ("LINEBEFORE", (1, 0), (1, 1), 0.75, line), ("LINEBELOW", (1, 0), (1, 0), 0.75, line),
+        ("LINEBELOW", (1, 1), (1, 1), 0.75, line),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    def page(canvas, doc):   # the bordered page + page number, as on Indram's invoices
+        canvas.saveState()
+        canvas.setStrokeColor(line)
+        canvas.setLineWidth(0.75)
+        canvas.rect(doc.leftMargin, doc.bottomMargin, doc.width, doc.height)
+        canvas.setFont("DejaVu", 7)
+        canvas.setFillColor(colors.grey)
+        canvas.drawRightString(doc.leftMargin + doc.width, doc.bottomMargin - 5 * mm, str(doc.page))
+        canvas.restoreState()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
+                            topMargin=12 * mm, bottomMargin=14 * mm)
+    doc.build([header, details, billto, items, summary], onFirstPage=page, onLaterPages=page)
     return buffer.getvalue()
 
 

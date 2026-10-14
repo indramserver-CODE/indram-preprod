@@ -50,10 +50,18 @@ class Settings(BaseSettings):
     BILLING_DAY_OF_MONTH: int = 1
     ENABLE_SCHEDULER: bool = False   # run reminder jobs — enable on exactly one instance
 
-    # Indram details printed on the GST tax invoice
-    INDRAM_LEGAL_NAME: str = "Indram"
-    INDRAM_ADDRESS:    str = ""
-    INDRAM_GSTIN:      str = ""
+    # Indram details printed on the GST tax invoice (override in .env if they change)
+    INDRAM_LEGAL_NAME:    str = "Indram Techventure Pvt. Ltd."
+    INDRAM_ADDRESS:       str = ("Indram Techventures Pvt. Ltd.\n"
+                                 "Mother Teresa Flyover, above Exide Battery, Adarsh Nagar\n"
+                                 "Pune Maharashtra 411017\nIndia")
+    INDRAM_GSTIN:         str = "27AAICI5926L1Z2"
+    INDRAM_PHONE:         str = "91-9960159031"
+    INDRAM_EMAIL:         str = "int.indram@gmail.com"
+    INDRAM_STATE_CODE:    str = "27"                     # place of supply when the society has no GSTIN
+    INDRAM_INVOICE_ITEM:  str = "Charger Maintenance"
+    INDRAM_INVOICE_SAC:   str = "998739"
+    INDRAM_INVOICE_NOTES: str = "Thanks for your business."
 
     # MQTT command auth token (must match CMD_AUTH_TOKEN in charger firmware)
     CMD_AUTH_TOKEN: str = ""

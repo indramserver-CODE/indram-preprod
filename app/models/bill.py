@@ -133,6 +133,7 @@ class IndramBill(Base):
     late_fee:            Mapped[Decimal]       = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
     cgst:                Mapped[Decimal]       = mapped_column(Numeric(12, 2), nullable=False)   # 9% of charges + late fee
     sgst:                Mapped[Decimal]       = mapped_column(Numeric(12, 2), nullable=False)
+    rounding:            Mapped[Decimal]       = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")  # to the nearest rupee
     total_payable:       Mapped[Decimal]       = mapped_column(Numeric(12, 2), nullable=False)
     society_gstin:       Mapped[str|None]      = mapped_column(String(15))
     due_date:            Mapped[date]          = mapped_column(Date, nullable=False)

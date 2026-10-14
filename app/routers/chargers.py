@@ -79,13 +79,16 @@ async def list_chargers(
     pending = {}
     latest_done = {}
     if ids:
+        # Queued (de)activations the charger hasn't confirmed yet — shown as a "pending" tag
         pend_rows = await db.execute(
             select(PendingCommand.charger_id, PendingCommand.cmd)
             .where(PendingCommand.charger_id.in_(ids),
-                   PendingCommand.cmd.in_(BULK_CMDS),
-                   PendingCommand.status == "pending")
+                   PendingCommand.cmd.in_((*BULK_CMDS, "DEACTIVATE", "ACTIVE")),
+                   PendingCommand.status == "pending",
+                   PendingCommand.expires_at > datetime.now(timezone.utc))
+            .order_by(PendingCommand.created_at)
         )
-        pending = {r.charger_id: r.cmd for r in pend_rows}
+        pending = {r.charger_id: r.cmd for r in pend_rows}   # newest wins
 
         done_rows = await db.execute(
             select(PendingCommand.charger_id, PendingCommand.cmd, PendingCommand.reason)

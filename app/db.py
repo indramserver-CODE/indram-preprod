@@ -28,6 +28,16 @@ def _get_asyncpg_dsn() -> str:
     return dsn
 
 
+# Errors that mean "the database is briefly unreachable" — worth retrying, not a bug.
+TRANSIENT_DB_ERRORS = (
+    TimeoutError,                                   # pool acquire / connect timed out
+    OSError,                                        # network down, connection refused / reset
+    asyncpg.exceptions.PostgresConnectionError,     # connection closed mid-operation, cannot connect now
+    asyncpg.exceptions.InterfaceError,              # connection lost mid-query
+    asyncpg.exceptions.TooManyConnectionsError,
+)
+
+
 async def create_pool() -> asyncpg.Pool:
     global _pool
     _pool = await asyncpg.create_pool(

@@ -26,7 +26,6 @@ from app.database import get_db
 from app.models.flat import Flat
 from app.models.charger import Charger
 from app.models.meter import Meter
-from app.models.session import ChargerStatus
 from app.models.society import Society
 from app.schemas.flat import FlatOut
 from app.models.user import SocietyAdmin, User
@@ -65,12 +64,13 @@ async def list_flats(
             Charger.charger_id,
             Charger.meter_id,
             Meter.label.label("meter_label"),
-            ChargerStatus.charger_status,
-            ChargerStatus.fault_code,
+            Charger.status.label("charger_status"),
+            Charger.fault_code,
+            Charger.lock_reasons,
+            Charger.last_seen_at,
         )
         .outerjoin(Charger, Charger.flat_id == Flat.id)
         .outerjoin(Meter, Meter.id == Charger.meter_id)
-        .outerjoin(ChargerStatus, ChargerStatus.charger_id == Charger.charger_id)
         .where(Flat.society_id == society_id)
         .order_by(Flat.flat_number)
     )
@@ -85,7 +85,9 @@ async def list_flats(
             meter_id=r.meter_id,
             meter_label=r.meter_label,
             charger_status=r.charger_status,
-            fault_code=str(r.fault_code) if r.fault_code is not None else None,
+            fault_code=r.fault_code,
+            lock_reasons=r.lock_reasons or [],
+            last_seen_at=r.last_seen_at,
             created_at=r.created_at,
         )
         for r in result.all()
@@ -192,12 +194,13 @@ async def list_my_society_flats(
             Charger.charger_id,
             Charger.meter_id,
             Meter.label.label("meter_label"),
-            ChargerStatus.charger_status,
-            ChargerStatus.fault_code,
+            Charger.status.label("charger_status"),
+            Charger.fault_code,
+            Charger.lock_reasons,
+            Charger.last_seen_at,
         )
         .outerjoin(Charger, Charger.flat_id == Flat.id)
         .outerjoin(Meter, Meter.id == Charger.meter_id)
-        .outerjoin(ChargerStatus, ChargerStatus.charger_id == Charger.charger_id)
         .where(Flat.society_id == society_id)
         .order_by(Flat.flat_number)
     )
@@ -213,7 +216,9 @@ async def list_my_society_flats(
             meter_id=r.meter_id,
             meter_label=r.meter_label,
             charger_status=r.charger_status,
-            fault_code=str(r.fault_code) if r.fault_code is not None else None,
+            fault_code=r.fault_code,
+            lock_reasons=r.lock_reasons or [],
+            last_seen_at=r.last_seen_at,
             created_at=r.created_at,
         )
         for r in rows

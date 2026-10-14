@@ -73,7 +73,9 @@ def flat_ctx(fb: FlatBill) -> dict:
 
 def indram_ctx() -> dict:
     return {"legal_name": settings.INDRAM_LEGAL_NAME, "address": settings.INDRAM_ADDRESS,
-            "gstin": settings.INDRAM_GSTIN}
+            "gstin": settings.INDRAM_GSTIN, "phone": settings.INDRAM_PHONE, "email": settings.INDRAM_EMAIL,
+            "state_code": settings.INDRAM_STATE_CODE, "item": settings.INDRAM_INVOICE_ITEM,
+            "sac": settings.INDRAM_INVOICE_SAC, "notes": settings.INDRAM_INVOICE_NOTES}
 
 
 async def flat_sessions(db, flat_bill_id: int) -> list[dict]:
@@ -114,7 +116,9 @@ def invoice_ctx(inv: IndramBill, meter: Meter, replaces_number: str | None = Non
         "late_fee_pct":        inv.late_fee_pct,
         "cgst":                inv.cgst,
         "sgst":                inv.sgst,
+        "rounding":            inv.rounding,
         "total_payable":       inv.total_payable,
+        "payment_status":      inv.payment_status,
         "replaces_number":     replaces_number,
     }
 

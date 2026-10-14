@@ -22,7 +22,6 @@ export const SOCIETY_ADMIN_NAV = [
   { key: 'sessions',   label: 'Live',       to: '/admin/sessions',    desc: 'Live sessions' },
   { key: 'completed',  label: 'History',    to: '/admin/completed',   desc: 'Session history' },
   { key: 'usage',      label: 'Usage',      to: '/admin/usage',       desc: 'Consumption data' },
-  { key: 'rfid',       label: 'RFID',       to: '/admin/rfid',        desc: 'Card management' },
   { key: 'bills',        label: 'Bills',        to: '/admin/bills',          desc: 'Billing history' },
   { key: 'indram-bills', label: 'Indram Bill',  to: '/admin/indram-bills',   desc: 'Platform invoice' },
   { key: 'billing-settings', label: 'Billing Settings', to: '/admin/billing-settings', desc: 'Letterhead & payment details' },

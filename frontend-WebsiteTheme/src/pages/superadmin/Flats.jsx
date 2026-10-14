@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/common/Modal';
 import SocietySelector from '../../components/common/SocietySelector';
+import DeleteAllButton from '../../components/common/DeleteAllButton';
 import CsvUploadPanel from '../../components/common/CsvUploadPanel';
 
 const SAMPLE_CSV = 'flat_number,owner_name,email\nA101,John Doe,john@example.com\nA102,Jane Smith,jane@example.com\n';
@@ -46,8 +47,9 @@ export default function Flats() {
 
   return (
     <div>
-      <div className="page-title" style={{ marginBottom: 20 }}>
-        Flats
+      <div className="page-header" style={{ marginBottom: 20 }}>
+        <div className="page-title">Flats</div>
+        {societyId && <DeleteAllButton societyId={societyId} scope="flats" onDone={() => loadFlats()} />}
       </div>
 
       <SocietySelector value={societyId} onChange={onSocietyChange} />
