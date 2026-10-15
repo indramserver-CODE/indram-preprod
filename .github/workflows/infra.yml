@@ -21,12 +21,16 @@ env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "0"
+  TF_STATE_KEY: preprod/ec2.tfstate
 
 defaults:
   run:
     working-directory: infra
 
 jobs:
+  # Read-only. Uses the plan role (ReadOnlyAccess + state lock), so a PR can
+  # never reach the infra role. Nothing from this job is uploaded as an artifact:
+  # a saved plan file embeds state in cleartext.
   plan:
     name: fmt / validate / plan
     runs-on: ubuntu-latest
@@ -37,10 +41,10 @@ jobs:
         with:
           terraform_version: "1.10.5"
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials (OIDC, plan role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - run: terraform fmt -check -recursive
@@ -49,7 +53,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=preprod/ec2.tfstate" \
+            -backend-config="key=${TF_STATE_KEY}" \
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
@@ -57,12 +61,13 @@ jobs:
       - run: terraform validate
 
       - name: terraform plan
-        id: plan
         run: |
-          terraform plan -no-color -out=tfplan \
+          terraform plan -no-color \
             -var="app_domain=${{ vars.APP_DOMAIN }}" \
             -var="api_domain=${{ vars.API_DOMAIN }}" \
             -var="route53_zone_id=${{ vars.ROUTE53_ZONE_ID }}" \
+            -var="tf_state_bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -var="tf_state_key=${TF_STATE_KEY}" \
             | tee plan.txt
 
       - name: Comment plan on PR
@@ -78,19 +83,15 @@ jobs:
               body: `### Terraform plan (preprod)\n\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`,
             });
 
-      - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request'
-        with:
-          name: tfplan
-          path: infra/tfplan
-          retention-days: 1
-
+  # The only job that can assume the infra role. The `preprod-infra` environment
+  # must have a required reviewer; the role's trust policy accepts no other subject.
+  # It produces its own plan and applies it in the same job, so no plan file leaves the runner.
   apply:
     name: apply (needs approval)
     runs-on: ubuntu-latest
     needs: plan
     if: github.event_name != 'pull_request'
-    environment: preprod-infra   # configure a required reviewer on this environment
+    environment: preprod-infra
     steps:
       - uses: actions/checkout@v4
 
@@ -98,7 +99,7 @@ jobs:
         with:
           terraform_version: "1.10.5"
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials (OIDC, infra role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
@@ -108,17 +109,21 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="key=preprod/ec2.tfstate" \
+            -backend-config="key=${TF_STATE_KEY}" \
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: infra
-
-      - run: terraform apply -no-color tfplan
+      - name: terraform plan + apply
+        run: |
+          terraform plan -no-color -out=tfplan \
+            -var="app_domain=${{ vars.APP_DOMAIN }}" \
+            -var="api_domain=${{ vars.API_DOMAIN }}" \
+            -var="route53_zone_id=${{ vars.ROUTE53_ZONE_ID }}" \
+            -var="tf_state_bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -var="tf_state_key=${TF_STATE_KEY}"
+          terraform apply -no-color tfplan
+          rm -f tfplan
 
       - name: Show outputs
         run: terraform output -json github_variables

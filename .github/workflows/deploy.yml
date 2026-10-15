@@ -29,6 +29,15 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     steps:
+      # Every later job depends on this one. RELEASE_SHA ends up in a shell
+      # command run as root on the host, so it must be a plain git SHA.
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::image_tag must be a git SHA (7-40 hex chars), got: $RELEASE_SHA"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -146,10 +155,10 @@ jobs:
               executionTimeout: ["900"],
               commands: [
                 "set -euo pipefail",
-                "mkdir -p /opt/indram/release/\($sha)",
-                "aws s3 cp s3://\($bucket)/releases/release-\($sha).tgz - | tar -xz -C /opt/indram/release/\($sha)",
+                "mkdir -p \"/opt/indram/release/\($sha)\"",
+                "aws s3 cp \"s3://\($bucket)/releases/release-\($sha).tgz\" - | tar -xz -C \"/opt/indram/release/\($sha)\"",
                 "chmod +x /opt/indram/release/\($sha)/deploy/*.sh",
-                "/opt/indram/release/\($sha)/deploy/deploy.sh \($sha)"
+                "\"/opt/indram/release/\($sha)/deploy/deploy.sh\" \"\($sha)\""
               ]
             }')" \
             --query 'Command.CommandId' --output text)

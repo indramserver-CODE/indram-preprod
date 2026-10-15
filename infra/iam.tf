@@ -11,8 +11,9 @@ data "aws_iam_policy_document" "ec2_assume" {
 }
 
 resource "aws_iam_role" "instance" {
-  name               = "${local.name}-instance"
-  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+  name                 = "${local.name}-instance"
+  assume_role_policy   = data.aws_iam_policy_document.ec2_assume.json
+  permissions_boundary = aws_iam_policy.boundary.arn
 }
 
 # SSM agent (Run Command + Session Manager)

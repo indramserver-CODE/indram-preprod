@@ -17,9 +17,10 @@ data "aws_iam_policy_document" "scheduler_assume" {
 }
 
 resource "aws_iam_role" "scheduler" {
-  count              = local.sched_count
-  name               = "${local.name}-scheduler"
-  assume_role_policy = data.aws_iam_policy_document.scheduler_assume.json
+  count                = local.sched_count
+  name                 = "${local.name}-scheduler"
+  assume_role_policy   = data.aws_iam_policy_document.scheduler_assume.json
+  permissions_boundary = aws_iam_policy.boundary.arn
 }
 
 resource "aws_iam_role_policy" "scheduler" {

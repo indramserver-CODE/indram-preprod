@@ -12,6 +12,7 @@
 set -euo pipefail
 
 SHA="${1:?usage: deploy.sh <image_tag>}"
+[[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] || { echo "deploy.sh: image tag must be a git SHA, got '$SHA'" >&2; exit 2; }
 BASE=/opt/indram
 RELEASE="$BASE/release/$SHA"
 ENV_FILE="$BASE/.env"

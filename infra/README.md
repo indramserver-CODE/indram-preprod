@@ -10,6 +10,7 @@ merge to `main` is rolled out. Everything referenced here lives in this reposito
 | `deploy/` | Files that run **on the EC2 host**: `compose.yml`, `Caddyfile`, `deploy.sh`, `migrate.sh` |
 | `.github/workflows/deploy.yml` | Build → push → roll out on every push to `main` |
 | `.github/workflows/infra.yml` | Terraform plan on PRs, apply on `main` behind an approval |
+| `infra/push-secrets.sh` | Writes the application secrets to SSM Parameter Store; the only way secrets enter AWS |
 
 ---
 
@@ -73,9 +74,33 @@ constraint without any ECS/ALB machinery.
 Command, and authenticates to AWS with an OIDC-federated role scoped to this repository.
 Humans use SSM Session Manager (`aws ssm start-session --target <instance-id>`).
 
-**Secrets never touch GitHub.** All runtime config lives in SSM Parameter Store under
-`/indram/preprod/`. `deploy.sh` renders it into `/opt/indram/.env` on every deploy.
-GitHub only holds non-secret *variables* (role ARN, instance id, bucket names, domains).
+**Secrets never touch GitHub or Terraform.** All runtime config lives in SSM Parameter
+Store under `/indram/preprod/`. Non-secret settings are Terraform-managed `String`
+parameters. Secrets are `SecureString` parameters written only by `infra/push-secrets.sh`
+and are deliberately *not* Terraform resources: the AWS provider reads every managed
+parameter back decrypted into state, so managing them would put every secret into the
+state bucket and into any saved plan file. `deploy.sh` renders the whole prefix into
+`/opt/indram/.env` on the host at deploy time. GitHub only holds non-secret *variables*
+(role ARNs, instance id, bucket names, domains).
+
+**Three GitHub roles, three trust policies.** The approval gates are enforced by AWS, not
+just by the workflow file:
+
+| Role | Trusted OIDC subjects | Permissions |
+|---|---|---|
+| `indram-preprod-github-plan` | any PR, pushes to `main` | `ReadOnlyAccess` + write the state lock file |
+| `indram-preprod-github-deploy` | pushes to `main`, the `preprod` environment | push to ECR, upload bundle, `ssm:SendCommand` on the one instance |
+| `indram-preprod-github-infra` | the `preprod-infra` environment only | `PowerUserAccess` + IAM limited to `indram-preprod-*` resources |
+
+A PR job can only ever obtain the plan role. The infra role is unreachable without a
+`preprod-infra` approval, because no other subject is in its trust policy.
+
+**Permissions boundary.** Every role in this stack carries `indram-preprod-boundary`.
+The infra role may only attach policies to roles that have the boundary, and the boundary
+itself denies editing the boundary or removing it from a role. So even if a policy like
+`AdministratorAccess` were attached to a CI role, its effective permissions stay capped at
+"PowerUser plus IAM on this stack's own resources". Changing the boundary requires a human
+with admin credentials running Terraform locally.
 
 ---
 
@@ -160,7 +185,7 @@ Directory layout on the host:
 
 ### Rollback
 
-- **Fast:** Actions → *Deploy preprod* → *Run workflow* → set `image_tag` to a previous commit SHA. The image build is skipped; the bundle (frontend + scripts) is rebuilt from whatever ref you choose, so pick that same commit as the ref.
+- **Fast:** Actions → *Deploy preprod* → *Run workflow* on `main` → set `image_tag` to a previous commit SHA. The image build is skipped and the old API image is redeployed; the bundle (frontend + scripts) is rebuilt from `main`. The tag must be a plain git SHA; anything else is rejected before any job runs. Dispatching from a branch other than `main` is refused by the deploy role's trust policy.
 - **Clean:** `git revert` and push to `main`. Normal pipeline.
 - **Automatic:** a failed health gate restarts the previous image on its own, as shown in the diagram.
 
@@ -195,22 +220,23 @@ If the AWS account already has the `token.actions.githubusercontent.com` OIDC pr
 
 ### 3.3 Fill in the secrets
 
-Terraform creates every `SecureString` as a `CHANGE_ME` placeholder and then ignores
-its value, so secrets never land in the state file. Set each one:
+Secrets are not Terraform resources. Put the ten values in a local file, for example
+`.env.preprod` (ignored by git), one `KEY=value` per line, then:
 
 ```bash
-P=/indram/preprod
-aws ssm put-parameter --overwrite --type SecureString --name $P/DATABASE_URL        --value 'postgresql+asyncpg://…?ssl=require'
-aws ssm put-parameter --overwrite --type SecureString --name $P/SECRET_KEY          --value "$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
-aws ssm put-parameter --overwrite --type SecureString --name $P/MQTT_HOST           --value 'xxxx.s1.eu.hivemq.cloud'
-aws ssm put-parameter --overwrite --type SecureString --name $P/MQTT_USERNAME       --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/MQTT_PASSWORD       --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/GMAIL_USER          --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/GMAIL_APP_PASSWORD  --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/CMD_AUTH_TOKEN      --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/SUPER_ADMIN_EMAIL   --value '…'
-aws ssm put-parameter --overwrite --type SecureString --name $P/SUPER_ADMIN_PASSWORD --value '…'
+infra/push-secrets.sh .env.preprod
 ```
+
+The script writes exactly these keys as `SecureString` under `/indram/preprod/`, trims
+trailing whitespace, never prints a value, and refuses the placeholder `SECRET_KEY`:
+
+```
+DATABASE_URL  SECRET_KEY  MQTT_HOST  MQTT_USERNAME  MQTT_PASSWORD
+GMAIL_USER  GMAIL_APP_PASSWORD  CMD_AUTH_TOKEN  SUPER_ADMIN_EMAIL  SUPER_ADMIN_PASSWORD
+```
+
+Generate `SECRET_KEY` with `python3 -c 'import secrets;print(secrets.token_hex(32))'`.
+Re-run the script any time to rotate a value, then redeploy so `.env` is re-rendered.
 
 Non-secret settings (`ENABLE_MQTT`, `ENABLE_SCHEDULER`, `MQTT_CLIENT_ID`, `RUN_MIGRATIONS`,
 …) are in the `app_parameters` map in `infra/variables.tf`; change them there and apply.
@@ -240,14 +266,15 @@ Create two environments under **Settings → Environments**:
 
 | Environment | Purpose | Protection |
 |---|---|---|
-| `preprod` | the `deploy` job | optional required reviewer |
-| `preprod-infra` | the Terraform `apply` job | required reviewer recommended |
+| `preprod` | the `deploy` job | set *Deployment branches* to `main` only; required reviewer optional |
+| `preprod-infra` | the Terraform `apply` job | **required reviewer** (this is the gate the infra role's trust policy relies on); deployment branches `main` only |
 
 Add these **variables** (not secrets) at repository or environment level, taken from
 `terraform output github_variables` plus the state bucket:
 
 ```
 AWS_REGION            ap-south-1
+AWS_PLAN_ROLE_ARN     arn:aws:iam::…:role/indram-preprod-github-plan
 AWS_DEPLOY_ROLE_ARN   arn:aws:iam::…:role/indram-preprod-github-deploy
 AWS_INFRA_ROLE_ARN    arn:aws:iam::…:role/indram-preprod-github-infra
 EC2_INSTANCE_ID       i-…
@@ -319,7 +346,8 @@ The change is a brief stop/start, no rebuild.
 | API logs | `docker logs -f indram-api` |
 | Caddy logs | `docker logs -f indram-caddy` |
 | Change a non-secret setting | edit `app_parameters` in `infra/variables.tf`, open a PR (plan is commented), merge, approve apply, then redeploy so `.env` is re-rendered |
-| Rotate a secret | `aws ssm put-parameter --overwrite …`, then redeploy |
+| Rotate a secret | update `.env.preprod`, run `infra/push-secrets.sh .env.preprod`, then redeploy |
+| Change the permissions boundary or a role's boundary | local `terraform apply` with admin credentials; CI is denied this on purpose |
 | Migration status | `migrate.sh status` on the host |
 | Resize the instance | change `instance_type`, apply (brief stop/start) |
 | Rebuild the host from scratch | `terraform taint aws_instance.app && terraform apply`, then redeploy. The Elastic IP is kept. |

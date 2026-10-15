@@ -114,19 +114,14 @@ variable "app_parameters" {
   }
 }
 
-variable "secret_parameter_names" {
-  description = "SecureString parameters created as placeholders; values are set out of band and ignored by Terraform."
-  type        = list(string)
-  default = [
-    "DATABASE_URL",
-    "SECRET_KEY",
-    "MQTT_HOST",
-    "MQTT_USERNAME",
-    "MQTT_PASSWORD",
-    "GMAIL_USER",
-    "GMAIL_APP_PASSWORD",
-    "CMD_AUTH_TOKEN",
-    "SUPER_ADMIN_EMAIL",
-    "SUPER_ADMIN_PASSWORD",
-  ]
+variable "tf_state_bucket" {
+  description = "S3 bucket holding Terraform state (created by infra/bootstrap); used to scope the plan role's lock permission"
+  type        = string
+  default     = "indram-terraform-state"
+}
+
+variable "tf_state_key" {
+  description = "State object key inside tf_state_bucket; must match backend.hcl"
+  type        = string
+  default     = "preprod/ec2.tfstate"
 }

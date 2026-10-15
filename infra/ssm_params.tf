@@ -9,6 +9,7 @@ locals {
   })
 }
 
+# Non-secret settings only. Plain String type: safe in state and plan output.
 resource "aws_ssm_parameter" "plain" {
   # SSM rejects empty strings, and an unset key is what the app expects anyway
   for_each = { for k, v in local.derived_parameters : k => v if v != "" }
@@ -18,16 +19,20 @@ resource "aws_ssm_parameter" "plain" {
   value = each.value
 }
 
-# Placeholders only. Real values are written with `aws ssm put-parameter --overwrite`
-# and Terraform ignores them afterwards so secrets never enter the state file.
-resource "aws_ssm_parameter" "secret" {
-  for_each = toset(var.secret_parameter_names)
-
-  name  = "${local.ssm_prefix}/${each.key}"
-  type  = "SecureString"
-  value = "CHANGE_ME"
+# Secrets are deliberately NOT Terraform resources.
+#
+# The AWS provider reads every SSM parameter back with WithDecryption=true and
+# stores the value in state, and `ignore_changes` does not prevent that. Any
+# SecureString managed here would end up in the state bucket and in every saved
+# plan file. Instead, secrets are written straight to Parameter Store with
+# infra/push-secrets.sh and only ever read by the EC2 host at deploy time.
+#
+# The block below forgets the placeholder parameters an earlier version of this
+# file created, without deleting them from AWS. It is a no-op once applied.
+removed {
+  from = aws_ssm_parameter.secret
 
   lifecycle {
-    ignore_changes = [value]
+    destroy = false
   }
 }

@@ -3,6 +3,7 @@ output "github_variables" {
   description = "Values for the GitHub Actions environment"
   value = {
     AWS_REGION          = var.aws_region
+    AWS_PLAN_ROLE_ARN   = aws_iam_role.github_plan.arn
     AWS_DEPLOY_ROLE_ARN = aws_iam_role.github_deploy.arn
     AWS_INFRA_ROLE_ARN  = aws_iam_role.github_infra.arn
     EC2_INSTANCE_ID     = aws_instance.app.id
