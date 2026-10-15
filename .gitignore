@@ -124,3 +124,11 @@ yarn-error.log*
 # ============================================================
 # .env.example should be committed — it's just a template
 !.env.example
+# Terraform (infra/)
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/backend.hcl
+infra/terraform.tfvars
+infra/bootstrap/terraform.tfvars

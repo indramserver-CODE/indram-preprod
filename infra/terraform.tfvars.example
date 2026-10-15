@@ -1,0 +1,7 @@
+env_name        = "preprod"
+github_repo     = "indramserver-CODE/indram-preprod"
+app_domain      = "app.preprod.indram.in"
+api_domain      = "api.preprod.indram.in"
+route53_zone_id = ""            # set to the hosted zone id to let Terraform manage DNS
+instance_type   = "t3.small"
+# bills_bucket_name = "indram-preprod-bills"

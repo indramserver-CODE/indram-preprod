@@ -1,9 +1,15 @@
 // API client
 
+// VITE_API_BASE is injected at build time (see .github/workflows/deploy.yml).
+// When it is not set we fall back to the old hostname-based logic so local dev
+// and the existing production build keep working unchanged.
+const _envBase = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+
 export const API_BASE =
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  _envBase ||
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? `http://${window.location.hostname}:8000`
-    : 'https://api.indram.in';
+    : 'https://api.indram.in');
 
 export function getToken() { return localStorage.getItem('token'); }
 export function getRole() { return localStorage.getItem('role'); }

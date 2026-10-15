@@ -1,0 +1,5 @@
+bucket       = "indram-terraform-state"
+key          = "preprod/ec2.tfstate"
+region       = "ap-south-1"
+use_lockfile = true
+encrypt      = true

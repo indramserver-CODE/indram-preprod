@@ -1,102 +1,183 @@
-name: Deploy EVC System
+name: Deploy preprod
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Existing ECR image tag (git SHA) to redeploy instead of building. Leave empty to build from this ref."
+        required: false
+        default: ""
+
+# OIDC token for AWS; no static keys
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-preprod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  RELEASE_SHA: ${{ inputs.image_tag != '' && inputs.image_tag || github.sha }}
 
 jobs:
-  # -----------------------
-  # 1. BACKEND DEPLOY
-  # -----------------------
-  deploy-backend:
-    name: Build and deploy backend
+  # ───────────────────────────────────────────────────────────────────────
+  test:
+    name: Backend tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q tests/
 
-      - name: Configure AWS credentials
+  # ───────────────────────────────────────────────────────────────────────
+  build-backend:
+    name: Build API image → ECR
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ inputs.image_tag == '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ap-south-1
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
+      - name: Login to ECR
+        id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag and push image to ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG
-          docker tag $ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG $ECR_REGISTRY/evc-prod-ecr-api:latest
-          docker push $ECR_REGISTRY/evc-prod-ecr-api:latest
-          echo "image=$ECR_REGISTRY/evc-prod-ecr-api:$IMAGE_TAG" >> $GITHUB_OUTPUT
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition evc-prod-task-api \
-            --query taskDefinition \
-            | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy, .enableFaultInjection)' \
-            > task-definition.json
-
-      - name: Update task definition with new image
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
-          task-definition: task-definition.json
-          container-name:  api
-          image:           ${{ steps.build-image.outputs.image }}
+          context: .
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_REPOSITORY }}:preprod-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition:            ${{ steps.task-def.outputs.task-definition }}
-          service:                    evc-prod-svc-api
-          cluster:                    evc-prod-ecs-cluster
-          wait-for-service-stability: true
-
-
-  # -----------------------
-  # 2. FRONTEND DEPLOY
-  # -----------------------
-  deploy-frontend:
-    name: Deploy frontend to S3
+  # ───────────────────────────────────────────────────────────────────────
+  build-release-bundle:
+    name: Build frontend + release bundle → S3
     runs-on: ubuntu-latest
-    needs: deploy-backend
-
+    needs: test
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend-WebsiteTheme/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend-WebsiteTheme
+        env:
+          VITE_API_BASE: https://${{ vars.API_DOMAIN }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble release bundle
+        run: |
+          mkdir -p bundle
+          cp -r deploy migrations bundle/
+          cp -r frontend-WebsiteTheme/dist bundle/www
+          echo "${RELEASE_SHA}" > bundle/RELEASE
+          tar -czf release-${RELEASE_SHA}.tgz -C bundle .
+          ls -lh release-${RELEASE_SHA}.tgz
+
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ap-south-1
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # ✅ HTML — NEVER CACHE
-      - name: Deploy HTML files (no cache)
-        run: |
-          aws s3 sync ./frontend/ s3://evc-prod-s3-frontend \
-            --exclude "*" --include "*.html" \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --content-type "text/html" \
-            --delete
+      - name: Upload bundle
+        run: aws s3 cp release-${RELEASE_SHA}.tgz s3://${{ vars.ARTIFACTS_BUCKET }}/releases/release-${RELEASE_SHA}.tgz
 
-      # ✅ JS/CSS — ALSO NO CACHE (important fix)
-      - name: Deploy JS, CSS, assets (no cache)
+  # ───────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Roll out on EC2 (SSM)
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-release-bundle]
+    # build-backend is skipped on a redeploy; still run as long as nothing failed
+    if: ${{ !cancelled() && needs.build-release-bundle.result == 'success' && (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') }}
+    environment:
+      name: preprod
+      url: https://${{ vars.APP_DOMAIN }}
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Send deploy command via SSM
+        id: send
         run: |
-          aws s3 sync ./frontend/ s3://evc-prod-s3-frontend \
-            --exclude "*.html" \
-            --cache-control "no-cache, no-store, must-revalidate" \
-            --delete
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "deploy ${RELEASE_SHA}" \
+            --timeout-seconds 600 \
+            --parameters "$(jq -cn --arg sha "$RELEASE_SHA" --arg bucket "${{ vars.ARTIFACTS_BUCKET }}" '{
+              executionTimeout: ["900"],
+              commands: [
+                "set -euo pipefail",
+                "mkdir -p /opt/indram/release/\($sha)",
+                "aws s3 cp s3://\($bucket)/releases/release-\($sha).tgz - | tar -xz -C /opt/indram/release/\($sha)",
+                "chmod +x /opt/indram/release/\($sha)/deploy/*.sh",
+                "/opt/indram/release/\($sha)/deploy/deploy.sh \($sha)"
+              ]
+            }')" \
+            --query 'Command.CommandId' --output text)
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command: $CMD_ID"
+
+      - name: Wait for deploy.sh to finish
+        run: |
+          CMD_ID="${{ steps.send.outputs.command_id }}"
+          IID="${{ vars.EC2_INSTANCE_ID }}"
+          # `wait command-executed` exits non-zero on Failed; capture status explicitly afterwards
+          aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$IID" || true
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query Status --output text)
+          echo "::group::deploy.sh output"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardOutputContent --output text
+          echo "::endgroup::"
+          echo "::group::deploy.sh stderr"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$IID" --query StandardErrorContent --output text
+          echo "::endgroup::"
+          echo "status: $STATUS"
+          [[ "$STATUS" == "Success" ]]
+
+  # ───────────────────────────────────────────────────────────────────────
+  smoke:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: API health
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS "https://${{ vars.API_DOMAIN }}/health" | grep -q '"ok"'; then
+              echo "api healthy"; exit 0
+            fi
+            sleep 6
+          done
+          echo "api health check failed"; exit 1
+      - name: Frontend serves index
+        run: curl -fsS -o /dev/null -w "frontend %{http_code}\n" "https://${{ vars.APP_DOMAIN }}/"

@@ -1,0 +1,21 @@
+# Caddy terminates TLS (Let's Encrypt, automatic) and fronts both hostnames.
+# APP_DOMAIN / API_DOMAIN are injected by compose.yml.
+
+{$APP_DOMAIN} {
+    root * /srv/www/current
+    encode gzip zstd
+    # SPA: hashed assets cache forever, index.html never
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+    header /index.html Cache-Control "no-cache, no-store, must-revalidate"
+    try_files {path} /index.html
+    file_server
+}
+
+{$API_DOMAIN} {
+    encode gzip zstd
+    reverse_proxy indram-api:8000 {
+        health_uri /health
+        health_interval 15s
+    }
+}

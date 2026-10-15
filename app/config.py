@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     MQTT_USERNAME: str  = ""
     MQTT_PASSWORD: str  = ""
     MQTT_USE_TLS:  bool = False
+    # Must be unique per running instance on the broker. preprod and prod share
+    # a HiveMQ cluster, so each environment needs its own value.
+    MQTT_CLIENT_ID: str = "evc-server-prod"
+
+    # CORS — "*" opens everything (local dev); set a comma-separated list in production
+    CORS_ORIGINS: str = "*"
 
     # JWT Auth
     SECRET_KEY:         str  = "change-me-in-production"

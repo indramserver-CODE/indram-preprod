@@ -52,6 +52,12 @@ indramev/
 
 ---
 
+## Deployment
+
+Preprod runs on a single EC2 host provisioned with Terraform and rolled out by GitHub Actions on every push to `main`. Architecture, flow diagrams, first-time setup and rollback are documented in [`infra/README.md`](infra/README.md).
+
+---
+
 ## Prerequisites
 
 Before running locally, make sure you have the following installed:
