@@ -10,7 +10,17 @@ output "github_variables" {
     ARTIFACTS_BUCKET    = aws_s3_bucket.artifacts.bucket
     APP_DOMAIN          = var.app_domain
     API_DOMAIN          = var.api_domain
+    DOCKER_PLATFORM     = local.docker_platform
   }
+}
+
+output "estimated_monthly_usd" {
+  description = "Rough always-on cost in ap-south-1 for the chosen size (compute + disk + public IPv4). Excludes free-tier credits."
+  value = format("%.1f",
+    (var.instance_type == "t4g.micro" ? 4.1 : var.instance_type == "t3.micro" ? 8.2 : var.instance_type == "t4g.small" ? 8.2 : var.instance_type == "t3.small" ? 16.4 : 0)
+    + var.root_volume_gb * 0.0912
+    + 3.65
+  )
 }
 
 output "public_ip" {

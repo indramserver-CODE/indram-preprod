@@ -3,5 +3,14 @@ github_repo     = "indramserver-CODE/indram-preprod"
 app_domain      = "app.preprod.indram.in"
 api_domain      = "api.preprod.indram.in"
 route53_zone_id = ""            # set to the hosted zone id to let Terraform manage DNS
-instance_type   = "t3.small"
-# bills_bucket_name = "indram-preprod-bills"
+instance_type   = "t4g.micro"   # cheapest; t4g.small if 1 GB RAM proves too tight
+root_volume_gb  = 16
+
+# Uncomment to stop the box outside 08:00-21:00 IST Mon-Sat (~65% less compute cost).
+# Leave disabled if chargers talk to preprod overnight.
+# office_hours = {
+#   enabled  = true
+#   start    = "cron(0 8 ? * MON-SAT *)"
+#   stop     = "cron(0 21 ? * MON-SAT *)"
+#   timezone = "Asia/Kolkata"
+# }

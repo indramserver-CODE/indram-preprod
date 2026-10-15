@@ -38,13 +38,40 @@ variable "route53_zone_id" {
 }
 
 variable "instance_type" {
-  type    = string
-  default = "t3.small"
+  description = "t4g.* (ARM/Graviton) is the cheapest; the image is built for the matching architecture automatically."
+  type        = string
+  default     = "t4g.micro" # 2 vCPU / 1 GB, ~USD 4/month in ap-south-1
 }
 
 variable "root_volume_gb" {
   type    = number
-  default = 20
+  default = 16
+}
+
+variable "cpu_credits" {
+  description = "standard = never pay burst surcharges; unlimited = can exceed baseline CPU for extra cost"
+  type        = string
+  default     = "standard"
+}
+
+variable "office_hours" {
+  description = <<-EOT
+    Optional: stop the instance outside working hours to cut compute cost by ~65%.
+    Only enable this if preprod does NOT need to be on 24x7 (e.g. no overnight charger tests).
+    Cron fields are EventBridge Scheduler syntax in the given timezone.
+  EOT
+  type = object({
+    enabled  = bool
+    start    = string
+    stop     = string
+    timezone = string
+  })
+  default = {
+    enabled  = false
+    start    = "cron(0 8 ? * MON-SAT *)"  # 08:00 Mon-Sat
+    stop     = "cron(0 21 ? * MON-SAT *)" # 21:00 Mon-Sat (stopped all Sunday)
+    timezone = "Asia/Kolkata"
+  }
 }
 
 variable "vpc_id" {

@@ -19,10 +19,17 @@ apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 
-# ── AWS CLI v2 ────────────────────────────────────────────────────────────
+# ── AWS CLI v2 (x86_64 or aarch64) ────────────────────────────────────────
 cd /tmp
-curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o awscliv2.zip
 unzip -q awscliv2.zip && ./aws/install && rm -rf aws awscliv2.zip
+
+# ── 1 GB swap: lets a 1 GB instance survive pip/compose spikes ───────────
+if ! grep -q swapfile /etc/fstab; then
+  fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=10 && echo 'vm.swappiness=10' > /etc/sysctl.d/99-swap.conf
+fi
 
 # ── SSM agent (preinstalled as a snap on Ubuntu AMIs; make sure it runs) ──
 snap start amazon-ssm-agent || true

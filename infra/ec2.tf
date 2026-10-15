@@ -1,5 +1,16 @@
+# Pick the AMI architecture from the instance type so switching between
+# t3.* (x86_64) and t4g.* (arm64) is a one-variable change.
+data "aws_ec2_instance_type" "app" {
+  instance_type = var.instance_type
+}
+
+locals {
+  arch            = contains(data.aws_ec2_instance_type.app.supported_architectures, "arm64") ? "arm64" : "amd64"
+  docker_platform = local.arch == "arm64" ? "linux/arm64" : "linux/amd64"
+}
+
 data "aws_ssm_parameter" "ubuntu_ami" {
-  name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+  name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/${local.arch}/hvm/ebs-gp3/ami-id"
 }
 
 resource "aws_instance" "app" {
@@ -9,6 +20,11 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.web.id]
   iam_instance_profile        = aws_iam_instance_profile.instance.name
   associate_public_ip_address = true
+
+  # Burstable instance: "standard" caps spend at the on-demand rate
+  credit_specification {
+    cpu_credits = var.cpu_credits
+  }
 
   user_data = templatefile("${path.module}/user_data.sh", {
     env_name     = var.env_name

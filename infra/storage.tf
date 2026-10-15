@@ -11,11 +11,11 @@ resource "aws_ecr_lifecycle_policy" "api" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "keep last 15 images"
+      description  = "keep last 5 images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 15
+        countNumber = 5
       }
       action = { type = "expire" }
     }]
@@ -42,7 +42,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
     id     = "expire-old-releases"
     status = "Enabled"
     filter { prefix = "releases/" }
-    expiration { days = 30 }
+    expiration { days = 7 }
   }
 }
 

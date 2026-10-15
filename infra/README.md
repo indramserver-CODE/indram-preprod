@@ -28,7 +28,7 @@ flowchart LR
         SSMP[(SSM Parameter Store<br/>/indram/preprod/*)]
         SSM[SSM Run Command]
 
-        subgraph EC2["EC2 t3.small (Ubuntu 24.04, Elastic IP)"]
+        subgraph EC2["EC2 t4g.micro Graviton (Ubuntu 24.04 arm64, Elastic IP)"]
             direction TB
             Caddy[Caddy :80/:443<br/>auto TLS]
             API[indram-api container<br/>uvicorn :8000<br/>1 worker]
@@ -58,6 +58,11 @@ flowchart LR
     API --> HiveMQ
     API --> Gmail
 ```
+
+**Why Graviton (arm64).** `t4g.micro` is the cheapest always-on instance AWS sells in
+Mumbai. The CI builds the image for arm64 through QEMU; every pinned Python dependency
+ships an arm64 wheel, so nothing is compiled during the build. Switching back to x86 is
+one variable (`instance_type = "t3.micro"`); the AMI and the Docker platform follow it.
 
 **Why one EC2 host.** The API runs the MQTT subscriber and the billing scheduler in
 process, and both must run on exactly one instance (`ENABLE_MQTT`, `ENABLE_SCHEDULER`,
@@ -267,7 +272,46 @@ the full `deploy.sh` output from the host.
 
 ---
 
-## 4. Day-2 operations
+## 4. Cost
+
+Everything here is pay-as-you-go. Approximate always-on monthly cost in ap-south-1:
+
+| Item | USD / month | Notes |
+|---|---|---|
+| EC2 `t4g.micro` (2 vCPU, 1 GB) | ~4.1 | `cpu_credits = "standard"` so it never bills burst surcharges |
+| EBS 16 GB gp3 | ~1.5 | |
+| Public IPv4 (Elastic IP) | ~3.65 | Charged by AWS for every public IPv4 since Feb 2024, attached or not. Unavoidable for a public HTTPS host. |
+| ECR (last 5 images) + S3 (7-day bundles, state) | < 0.5 | Same-region pulls are free |
+| SSM Parameter Store, Run Command, Session Manager, OIDC, KMS default key | 0 | Standard tier, no charge |
+| Route53 | 0.50 per hosted zone | Only if you create a *new* zone. Using an existing zone or external DNS costs nothing. |
+| CloudWatch | 0 | No log shipping or alarms are configured |
+| **Total** | **~10** | `terraform output estimated_monthly_usd` prints this for your chosen size |
+
+GitHub Actions: free for public repos; private repos get 2 000 minutes/month on the free
+plan. A deploy takes roughly 6 to 8 minutes (the arm64 build under QEMU is the slow part,
+cached between runs), so about 250 deploys/month fit in the free allowance.
+
+Neon and HiveMQ Cloud stay on their free tiers as today.
+
+### Ways to go lower
+
+| Option | Saves | Trade-off |
+|---|---|---|
+| **Office-hours schedule** (`office_hours.enabled = true` in tfvars) | ~2.7 / month (compute off ~65% of the week) | Preprod is down nights and Sundays. Do not enable if chargers must reach preprod overnight. EBS and the IP are still billed while stopped. |
+| **AWS Free Tier** | up to all of it for 6 months | Accounts created after 15 July 2025 get USD 100 to 200 in credits for six months. Older accounts get 750 h/month of `t3.micro` (x86, ~8/month) and 750 h of public IPv4 for the first 12 months. Check Billing → Free Tier in the console. |
+| **1-year Compute Savings Plan**, no upfront | ~30% of compute | Commitment for 12 months |
+| Spot instance | ~70% of compute | Can be reclaimed with 2 minutes notice; not recommended for something that should "just work" |
+
+### If 1 GB RAM turns out to be tight
+
+The host runs Docker, the API (one uvicorn worker), Caddy and the SSM agent in about
+600 MB, with a 1 GB swap file as headroom. If `docker stats` shows the API near its
+limit during PDF/Excel generation, set `instance_type = "t4g.small"` (2 GB, ~8/month).
+The change is a brief stop/start, no rebuild.
+
+---
+
+## 5. Day-2 operations
 
 | Task | How |
 |---|---|
@@ -282,7 +326,7 @@ the full `deploy.sh` output from the host.
 
 ---
 
-## 5. Changes made to the application for this
+## 6. Changes made to the application for this
 
 - `frontend-WebsiteTheme/src/api/client.js` reads `VITE_API_BASE` at build time; falls back to the old hostname logic.
 - `app/config.py` gains `CORS_ORIGINS` and `MQTT_CLIENT_ID`; `app/main.py` and `app/mqtt_subscriber.py` read them from settings.
