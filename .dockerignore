@@ -3,7 +3,13 @@
 __pycache__
 *.pyc
 .env
+.env.*
 venv
 .venv
 *.zip
-frontend/
+frontend-WebsiteTheme/
+infra/
+deploy/
+migrations/
+tests/
+*.md

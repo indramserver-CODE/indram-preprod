@@ -131,8 +131,8 @@ app = FastAPI(
 
 # ── CORS ──────────────────────────────────────────────────
 # Locally: CORS_ORIGINS is not set → defaults to "*" → open for development
-# Production: CORS_ORIGINS comes from Secrets Manager → restricted to your domains
-_cors_env = os.getenv("CORS_ORIGINS", "*")
+# Production: CORS_ORIGINS comes from SSM Parameter Store → restricted to your domains
+_cors_env = settings.CORS_ORIGINS.strip() or "*"
 
 if _cors_env == "*":
     origins = ["*"]

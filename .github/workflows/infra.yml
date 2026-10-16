@@ -1,0 +1,147 @@
+name: Infra (Terraform)
+
+on:
+  pull_request:
+    paths: ["infra/**", ".github/workflows/infra.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", ".github/workflows/infra.yml"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: infra-preprod
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "0"
+  TF_STATE_KEY: preprod/ec2.tfstate
+
+defaults:
+  run:
+    working-directory: infra
+
+jobs:
+  # Read-only. Uses the plan role (ReadOnlyAccess + state lock), so a PR can
+  # never reach the infra role. Nothing from this job is uploaded as an artifact:
+  # a saved plan file embeds state in cleartext.
+  plan:
+    name: fmt / validate / plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Check required GitHub variables
+        env:
+          AWS_PLAN_ROLE_ARN: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          AWS_INFRA_ROLE_ARN: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          API_DOMAIN: ${{ vars.API_DOMAIN }}
+        run: |
+          missing=()
+          for v in AWS_REGION AWS_PLAN_ROLE_ARN AWS_INFRA_ROLE_ARN TF_STATE_BUCKET APP_DOMAIN API_DOMAIN; do
+            [[ -z "${!v}" ]] && missing+=("$v")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing GitHub Actions variables: ${missing[*]}. Add them under Settings → Secrets and variables → Actions → Variables (see infra/README.md section 3.5)."
+            exit 1
+          fi
+          echo "all required variables present"
+
+      - name: Configure AWS credentials (OIDC, plan role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - run: terraform validate
+
+      - name: terraform plan
+        run: |
+          terraform plan -no-color \
+            -var="app_domain=${{ vars.APP_DOMAIN }}" \
+            -var="api_domain=${{ vars.API_DOMAIN }}" \
+            -var="route53_zone_id=${{ vars.ROUTE53_ZONE_ID }}" \
+            -var="tf_state_bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -var="tf_state_key=${TF_STATE_KEY}" \
+            | tee plan.txt
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/plan.txt', 'utf8').slice(-60000);
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.issue.number,
+              body: `### Terraform plan (preprod)\n\n<details><summary>Show plan</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`,
+            });
+
+  # The only job that can assume the infra role. The `preprod-infra` environment
+  # must have a required reviewer; the role's trust policy accepts no other subject.
+  # It produces its own plan and applies it in the same job, so no plan file leaves the runner.
+  apply:
+    name: apply (needs approval)
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name != 'pull_request'
+    environment: preprod-infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Configure AWS credentials (OIDC, infra role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: terraform plan + apply
+        run: |
+          terraform plan -no-color -out=tfplan \
+            -var="app_domain=${{ vars.APP_DOMAIN }}" \
+            -var="api_domain=${{ vars.API_DOMAIN }}" \
+            -var="route53_zone_id=${{ vars.ROUTE53_ZONE_ID }}" \
+            -var="tf_state_bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -var="tf_state_key=${TF_STATE_KEY}"
+          terraform apply -no-color tfplan
+          rm -f tfplan
+
+      - name: Show outputs
+        run: terraform output -json github_variables

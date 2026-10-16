@@ -61,7 +61,7 @@ SUBSCRIBE_TOPICS = [
 # Stable client ID — must never change across restarts so HiveMQ
 # delivers queued QoS 1 messages when server comes back online.
 # A random suffix causes HiveMQ to discard the queue on every restart.
-_CLIENT_ID = "evc-server-prod"
+_CLIENT_ID = settings.MQTT_CLIENT_ID
 
 
 # ------------------------------------------------------------------ #
