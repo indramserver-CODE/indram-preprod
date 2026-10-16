@@ -41,6 +41,24 @@ jobs:
         with:
           terraform_version: "1.10.5"
 
+      - name: Check required GitHub variables
+        env:
+          AWS_PLAN_ROLE_ARN: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          AWS_INFRA_ROLE_ARN: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          APP_DOMAIN: ${{ vars.APP_DOMAIN }}
+          API_DOMAIN: ${{ vars.API_DOMAIN }}
+        run: |
+          missing=()
+          for v in AWS_REGION AWS_PLAN_ROLE_ARN AWS_INFRA_ROLE_ARN TF_STATE_BUCKET APP_DOMAIN API_DOMAIN; do
+            [[ -z "${!v}" ]] && missing+=("$v")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing GitHub Actions variables: ${missing[*]}. Add them under Settings → Secrets and variables → Actions → Variables (see infra/README.md section 3.5)."
+            exit 1
+          fi
+          echo "all required variables present"
+
       - name: Configure AWS credentials (OIDC, plan role)
         uses: aws-actions/configure-aws-credentials@v4
         with:
